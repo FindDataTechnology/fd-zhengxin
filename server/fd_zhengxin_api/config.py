@@ -77,6 +77,35 @@ def reference_base_url() -> str:
     return env("REFERENCE_BASE_URL")
 
 
+# ---- info-stream（fd-info 只读查询面，任务 4.5 脉搏环上游） ----
+
+
+def infostream_base_url() -> str:
+    """fd-info（柏讯信息流索引，MCP streamable-http）服务地址。
+
+    fd-info 未上产（端点可配置）：未设时 infostream_client 一律抛结构化
+    InfoStreamUnavailable(not_configured)，绝不静默返回空结果。
+    """
+    return env("INFOSTREAM_BASE_URL")
+
+
+# ---- 脉搏环 / LLM 台账（产品运营层自有库，不混入个人层库） ----
+
+
+def pulse_db_path() -> str:
+    """脉搏环库路径（默认 ~/.fd-zhengxin/pulse.db）。
+
+    议题立场光谱是从 info-stream 可重建的缓存快照，属产品运营层，
+    物理上不与个人层理解记录（config.db_path）混库。
+    """
+    return env("PULSE_DB") or str(Path.home() / ".fd-zhengxin" / "pulse.db")
+
+
+def ledger_db_path() -> str:
+    """LLM 成本台账库路径（默认 ~/.fd-zhengxin/llm_ledger.db）。"""
+    return env("LEDGER_DB") or str(Path.home() / ".fd-zhengxin" / "llm_ledger.db")
+
+
 # ---- 口径守卫 ----
 
 def guard_overlay_path() -> str:

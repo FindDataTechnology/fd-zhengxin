@@ -43,7 +43,10 @@ def test_migrate_idempotent() -> None:
 
 
 def test_understanding_card_has_no_stance_columns() -> None:
-    """口径纪律（模型层）：理解卡不含任何表态字段（立场/赞同/倾向/评价）。"""
+    """口径纪律（模型层）：理解卡不含任何表态字段（立场/赞同/倾向/评价）。
+
+    0002 追加的 state 是理解进度位（复述中/已理解/搁置），非表态字段。
+    """
     conn = personal.connect()
     try:
         personal.migrate(conn)
@@ -53,7 +56,7 @@ def test_understanding_card_has_no_stance_columns() -> None:
         }
         assert cols == {
             "id", "user_id", "topic", "digest", "key_points", "refs",
-            "status", "created_at", "updated_at", "sealed_at",
+            "status", "state", "created_at", "updated_at", "sealed_at",
         }
         banned = {"position", "stance", "attitude", "agreement", "endorsement",
                   "opinion", "stance_stability", "evaluation"}

@@ -1,4 +1,4 @@
-"""个人层存储（骨架期）：理解卡 / 学习地图 / 理解年轮。
+"""个人层存储（task 5.1-5.4）：理解卡 / 学习地图 / 理解年轮。
 
 物理分库铁律（照 fd-zhesi「个人层私有归属」先例）：本库是 fd-zhengxin
 产品自有存储（默认 ~/.fd-zhengxin/personal.db，env FDZX__DB），与参照系
@@ -67,7 +67,16 @@ MIGRATIONS = [
         at TEXT NOT NULL
     );
     """,
+    # 0002：理解进度状态（task 5.2）——restating | understood | shelved。
+    # 这是「复述推进到哪一步」的进度位，不是表态位：不含任何立场/赞同/
+    # 倾向语义，已理解=复述覆盖了关键前提，仅此而已。
+    """
+    ALTER TABLE understanding_cards ADD COLUMN state TEXT NOT NULL DEFAULT 'restating';
+    """,
 ]
+
+# 理解进度状态机（task 5.2）：已理解只能经复述校验达阈值进入（API 层把关）
+CARD_STATES = ("restating", "understood", "shelved")
 
 
 def now() -> str:
@@ -100,7 +109,7 @@ def new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
-# ---- 理解卡（骨架数据面；API 挂载接线期补） ----
+# ---- 理解卡（task 5.2 数据面：状态流转 + 理解年轮） ----
 
 def card_row_to_dict(r: sqlite3.Row) -> dict:
     return {
@@ -110,6 +119,7 @@ def card_row_to_dict(r: sqlite3.Row) -> dict:
         "key_points": json.loads(r["key_points"]) if r["key_points"] else [],
         "refs": json.loads(r["refs"]) if r["refs"] else [],
         "status": r["status"],
+        "state": r["state"],
         "created_at": r["created_at"],
         "updated_at": r["updated_at"],
         "sealed_at": r["sealed_at"],
@@ -119,16 +129,19 @@ def card_row_to_dict(r: sqlite3.Row) -> dict:
 def create_card(
     conn: sqlite3.Connection, user_id: str, topic: str, digest: str,
     key_points: list[str] | None = None, refs: list[dict] | None = None,
+    state: str = "restating",
 ) -> dict:
+    if state not in CARD_STATES:
+        raise ValueError(f"state 只支持 {list(CARD_STATES)}")
     ts = now()
     cid = new_id()
     conn.execute(
         "INSERT INTO understanding_cards (id, user_id, topic, digest, key_points,"
-        " refs, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        " refs, state, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (
             cid, user_id, topic, digest,
             json.dumps(key_points or [], ensure_ascii=False),
-            json.dumps(refs or [], ensure_ascii=False), ts, ts,
+            json.dumps(refs or [], ensure_ascii=False), state, ts, ts,
         ),
     )
     conn.commit()
@@ -143,13 +156,80 @@ def get_card(conn: sqlite3.Connection, user_id: str, card_id: str) -> dict | Non
     return card_row_to_dict(r) if r else None
 
 
-def list_cards(conn: sqlite3.Connection, user_id: str, status: str = "active") -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM understanding_cards WHERE user_id=? AND status=?"
-        " ORDER BY created_at",
-        (user_id, status),
-    ).fetchall()
+def list_cards(
+    conn: sqlite3.Connection, user_id: str, status: str = "active",
+    state: str | None = None,
+) -> list[dict]:
+    sql = "SELECT * FROM understanding_cards WHERE user_id=? AND status=?"
+    params: list = [user_id, status]
+    if state:
+        sql += " AND state=?"
+        params.append(state)
+    sql += " ORDER BY created_at"
+    rows = conn.execute(sql, params).fetchall()
     return [card_row_to_dict(r) for r in rows]
+
+
+def set_card_state(
+    conn: sqlite3.Connection, user_id: str, card_id: str, state: str,
+) -> dict | None:
+    """仅 active 卡可转状态（「已理解」只经复述校验达阈值进入，把关在 API 层）。"""
+    if state not in CARD_STATES:
+        raise ValueError(f"state 只支持 {list(CARD_STATES)}")
+    card = get_card(conn, user_id, card_id)
+    if not card or card["status"] != "active":
+        return None
+    conn.execute(
+        "UPDATE understanding_cards SET state=?, updated_at=? WHERE id=?",
+        (state, now(), card_id),
+    )
+    conn.commit()
+    return get_card(conn, user_id, card_id)
+
+
+def supersede_card(
+    conn: sqlite3.Connection, user_id: str, card_id: str, *,
+    kind: str, state: str,
+    digest: str | None = None, key_points: list[str] | None = None,
+) -> dict | None:
+    """旧状态封存入理解年轮（append-only），新状态开卡（spec「理解年轮」）。
+
+    kind：superseded=重复提交换新复述；sealed=搁置。
+    年轮快照取封存前的完整卡（含当时的 state），历史不覆盖。
+    """
+    card = get_card(conn, user_id, card_id)
+    if not card or card["status"] != "active":
+        return None
+    if state not in CARD_STATES:
+        raise ValueError(f"state 只支持 {list(CARD_STATES)}")
+    ts = now()
+    conn.execute(
+        "UPDATE understanding_cards SET status='sealed', sealed_at=?, updated_at=?"
+        " WHERE id=?",
+        (ts, ts, card_id),
+    )
+    conn.execute(
+        "INSERT INTO understanding_annals (id, user_id, card_id, kind, snapshot, at)"
+        " VALUES (?,?,?,?,?,?)",
+        (
+            new_id(), user_id, card_id, kind,
+            json.dumps(card, ensure_ascii=False), ts,
+        ),
+    )
+    new_cid = new_id()
+    conn.execute(
+        "INSERT INTO understanding_cards (id, user_id, topic, digest, key_points,"
+        " refs, state, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            new_cid, user_id, card["topic"],
+            digest or card["digest"],
+            json.dumps(key_points if key_points is not None else card["key_points"],
+                       ensure_ascii=False),
+            json.dumps(card["refs"], ensure_ascii=False), state, ts, ts,
+        ),
+    )
+    conn.commit()
+    return get_card(conn, user_id, new_cid)
 
 
 def list_annals(conn: sqlite3.Connection, user_id: str) -> list[dict]:
@@ -166,6 +246,69 @@ def list_annals(conn: sqlite3.Connection, user_id: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+# ---- 学习地图（task 5.4 数据面：版本化保留历史） ----
+
+def map_row_to_dict(r: sqlite3.Row, with_snapshot: bool = True) -> dict:
+    out = {
+        "id": r["id"],
+        "title": r["title"],
+        "version": r["version"],
+        "created_at": r["created_at"],
+    }
+    if with_snapshot:
+        out["snapshot"] = json.loads(r["snapshot"])
+    return out
+
+
+def save_map(
+    conn: sqlite3.Connection, user_id: str, snapshot: dict,
+    title: str | None = None,
+) -> dict:
+    """存一版学习地图：版本号按用户自增（旧版本全保留，spec「地图更新保留历史」）。"""
+    latest = conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM learning_maps WHERE user_id=?",
+        (user_id,),
+    ).fetchone()[0]
+    version = int(latest) + 1
+    mid = new_id()
+    ts = now()
+    conn.execute(
+        "INSERT INTO learning_maps (id, user_id, title, snapshot, version, created_at)"
+        " VALUES (?,?,?,?,?,?)",
+        (
+            mid, user_id, title or f"学习地图 v{version}",
+            json.dumps(snapshot, ensure_ascii=False), version, ts,
+        ),
+    )
+    conn.commit()
+    return {"id": mid, "title": title or f"学习地图 v{version}", "version": version,
+            "snapshot": snapshot, "created_at": ts}
+
+
+def latest_map(conn: sqlite3.Connection, user_id: str) -> dict | None:
+    r = conn.execute(
+        "SELECT * FROM learning_maps WHERE user_id=? ORDER BY version DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    return map_row_to_dict(r) if r else None
+
+
+def get_map_version(conn: sqlite3.Connection, user_id: str, version: int) -> dict | None:
+    r = conn.execute(
+        "SELECT * FROM learning_maps WHERE user_id=? AND version=?",
+        (user_id, version),
+    ).fetchone()
+    return map_row_to_dict(r) if r else None
+
+
+def list_map_versions(conn: sqlite3.Connection, user_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM learning_maps WHERE user_id=? ORDER BY version DESC",
+        (user_id,),
+    ).fetchall()
+    return [map_row_to_dict(r, with_snapshot=False) for r in rows]
 
 
 # ---- 审计（访问控制的留痕面） ----
