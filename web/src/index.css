@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* 政心 Zhengxin — 书斋世界。
+   形制照 fd-zhesi（宋体衬线 display + 藏青血统），色温更沉着：
+   hero 是安静的书斋夜色，松青（pine）做点题色——呈现的冷静而非立场的温度；
+   纸色正文区保留家族的冷静。骨架期不做多余动效，只留 hero 一次浮起。 */
+@theme {
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", Georgia, serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-paper: #f7f7fa;
+  --color-mist: #ecedf3;
+  --color-night: #101a33;
+  --color-night-deep: #0a1226;
+  --color-ink: #212842;
+  --color-ink-soft: #565e78;
+  --color-line: #dcdde6;
+  --color-line-strong: #b9bccd;
+  --color-pine: #3d6b5e;
+  --color-pine-soft: #e2ece8;
+  --color-moon: #e9ebf5;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background-color: var(--color-pine-soft);
+  color: var(--color-night-deep);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-pine);
+  outline-offset: 2px;
+}
+
+@keyframes hero-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.hero-rise {
+  animation: hero-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.hero-rise-1 { animation-delay: 0.05s; }
+.hero-rise-2 { animation-delay: 0.18s; }
+.hero-rise-3 { animation-delay: 0.32s; }

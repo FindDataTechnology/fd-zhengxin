@@ -1,0 +1,61 @@
+# fd-zhengxin-web — prod (fd-prod)
+# 形制照 fd-zhesi/deploy/k8s/fd-zhesi-web.yaml，骨架期占位：
+# - image tag 等 CI 首次出片后替换（本仓不推镜像、不碰集群）；
+# - env ← Secret fd-zhengxin-web-env（键名：FDZX__DB / FDZX__AUTH_* / FDZX__LLM_* /
+#   FDZX__REFERENCE_BASE_URL；清单不含明文，集群内手工创建）；
+# - 资源档：requests 保持轻（fd-prod 余量小），limits 给足余量。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fd-zhengxin-web
+  namespace: fd-prod
+  labels:
+    app.kubernetes.io/name: fd-zhengxin-web
+    app.kubernetes.io/part-of: finddata
+    app.kubernetes.io/environment: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fd-zhengxin-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fd-zhengxin-web
+        app.kubernetes.io/part-of: finddata
+        app.kubernetes.io/environment: production
+    spec:
+      containers:
+        - name: web
+          image: ccr.ccs.tencentyun.com/finddata-business/fd-zhengxin-web:sha-placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+          envFrom:
+            - secretRef:
+                name: fd-zhengxin-web-env
+          resources:
+            requests: { cpu: 20m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fd-zhengxin-web
+  namespace: fd-prod
+  labels:
+    app.kubernetes.io/name: fd-zhengxin-web
+    app.kubernetes.io/part-of: finddata
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: fd-zhengxin-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 31890
