@@ -28,13 +28,134 @@ from .guard import Action, Verdict, guard_output
 # ---------------------------------------------------------------------------
 # 确定性锚定词表（中文别名 → 参照系查询词）
 #
-# 查询词面与 fd-zhengxin-reference/fd_zhengxin_reference/sep_politics.py 的
-# CANONICAL 26 词对齐（英文词即该表的键）。中文子串匹配、英文按词边界
-# （大小写不敏感）；命中按关键词长度降序（越长越具体），照 fd-zhesi
-# QUESTION_DOMAINS 的 map_domains 手法。
+# D4 对齐后词表有三段来源（共 115 词条，静态固化——运行时不读对方仓文件）：
+#
+# 1. 近现代五思潮词（5 条）：fd-zhengxin-reference 的 china_lineage.
+#    MODERN_CURRENTS 标签（维新变法思潮/辛亥革命思潮/自由主义思潮/文化保守
+#    主义（学衡派/新儒家早期）/社会主义论战），term=思潮全称（参照系按标签
+#    精确命中）；
+# 2. 先秦种子谱系（86 条）：fd-zhengxin-reference/seed/china_seed.json 的
+#    概念名单（46 条，term=种子标签精确值）与人物名单（40 条，term=人物
+#    全名标签——参照系关系面按精确全名匹配，简称不入词表）；
+# 3. SEP CANONICAL 26 词的中文别名（24 条，原有词表）。
+#
+# 再生成方式（种子/近现代名单变更后重跑，产出替换第 1/2 段）：
+#     python3 - <<'EOF'
+#     import json
+#     data = json.load(open("<参照系仓>/seed/china_seed.json"))
+#     for c in data["concepts"]:
+#         if len(c["label"]) >= 2:   # 单字概念（仁/礼/势/术）子串误命中率高，不入
+#             print(json.dumps({"term": c["label"], "keywords": [c["label"]]},
+#                              ensure_ascii=False))
+#     for f in data["figures"]:
+#         print(json.dumps({"term": f["label"], "keywords": [f["label"]]},
+#                          ensure_ascii=False))
+#     EOF
+# 近现代五词手写（china_lineage.MODERN_CURRENTS 的标签 + 常用简称别名）。
+#
+# 匹配纪律：中文关键词按子串、英文按词边界（大小写不敏感）；命中按关键词
+# 长度降序（越长越具体——「自由主义思潮」先于「自由主义」/liberalism，
+# 种子直查优先于 SEP 伞形词），照 fd-zhesi QUESTION_DOMAINS 的 map_domains
+# 手法。种子/近现代词条置于 SEP 别名段之前：等长并列时参照系库内直查胜出。
 # ---------------------------------------------------------------------------
 
 LEXICON: list[dict] = [
+    # ---- 1) 近现代五思潮（term=思潮全称，参照系 currents 标签精确命中） ----
+    {"term": "维新变法思潮", "keywords": ["维新变法思潮", "维新变法", "维新"]},
+    {"term": "辛亥革命思潮", "keywords": ["辛亥革命思潮", "辛亥革命"]},
+    {"term": "自由主义思潮", "keywords": ["自由主义思潮", "自由主义"]},
+    {"term": "文化保守主义（学衡派/新儒家早期）",
+     "keywords": ["文化保守主义（学衡派/新儒家早期）", "文化保守主义"]},
+    {"term": "社会主义论战", "keywords": ["社会主义论战"]},
+    # ---- 2) 先秦种子概念（term=种子标签，参照系 concepts 表精确命中） ----
+    {"term": "仁政", "keywords": ["仁政"]},
+    {"term": "王道", "keywords": ["王道"]},
+    {"term": "霸道", "keywords": ["霸道"]},
+    {"term": "德治", "keywords": ["德治"]},
+    {"term": "民本", "keywords": ["民本"]},
+    {"term": "正名", "keywords": ["正名"]},
+    {"term": "大同", "keywords": ["大同"]},
+    {"term": "小康", "keywords": ["小康"]},
+    {"term": "性善论", "keywords": ["性善论"]},
+    {"term": "性恶论", "keywords": ["性恶论"]},
+    {"term": "忠恕", "keywords": ["忠恕"]},
+    {"term": "中庸", "keywords": ["中庸"]},
+    {"term": "天命", "keywords": ["天命"]},
+    {"term": "有教无类", "keywords": ["有教无类"]},
+    {"term": "义利之辨", "keywords": ["义利之辨"]},
+    {"term": "无为", "keywords": ["无为"]},
+    {"term": "道法自然", "keywords": ["道法自然"]},
+    {"term": "小国寡民", "keywords": ["小国寡民"]},
+    {"term": "柔弱胜刚强", "keywords": ["柔弱胜刚强"]},
+    {"term": "齐物", "keywords": ["齐物"]},
+    {"term": "逍遥", "keywords": ["逍遥"]},
+    {"term": "绝圣弃智", "keywords": ["绝圣弃智"]},
+    {"term": "内圣外王", "keywords": ["内圣外王"]},
+    {"term": "法治（以法为本）", "keywords": ["法治（以法为本）", "法治", "以法为本"]},
+    {"term": "法不阿贵", "keywords": ["法不阿贵"]},
+    {"term": "耕战", "keywords": ["耕战"]},
+    {"term": "以刑去刑", "keywords": ["以刑去刑"]},
+    {"term": "兼爱", "keywords": ["兼爱"]},
+    {"term": "非攻", "keywords": ["非攻"]},
+    {"term": "尚贤", "keywords": ["尚贤"]},
+    {"term": "尚同", "keywords": ["尚同"]},
+    {"term": "节用", "keywords": ["节用"]},
+    {"term": "天志", "keywords": ["天志"]},
+    {"term": "非命", "keywords": ["非命"]},
+    {"term": "明鬼", "keywords": ["明鬼"]},
+    {"term": "白马非马", "keywords": ["白马非马"]},
+    {"term": "离坚白", "keywords": ["离坚白"]},
+    {"term": "合同异", "keywords": ["合同异"]},
+    {"term": "五行", "keywords": ["五行"]},
+    {"term": "阴阳", "keywords": ["阴阳"]},
+    {"term": "五德终始", "keywords": ["五德终始"]},
+    {"term": "不战而屈人之兵", "keywords": ["不战而屈人之兵"]},
+    {"term": "知己知彼", "keywords": ["知己知彼"]},
+    {"term": "上兵伐谋", "keywords": ["上兵伐谋"]},
+    {"term": "合纵", "keywords": ["合纵"]},
+    {"term": "连横", "keywords": ["连横"]},
+    # ---- 2b) 先秦种子人物（term=人物全名标签；关系面按精确全名匹配） ----
+    {"term": "孔子", "keywords": ["孔子"]},
+    {"term": "曾参（曾子）", "keywords": ["曾参（曾子）"]},
+    {"term": "孔伋（子思）", "keywords": ["孔伋（子思）"]},
+    {"term": "卜商（子夏）", "keywords": ["卜商（子夏）"]},
+    {"term": "言偃（子游）", "keywords": ["言偃（子游）"]},
+    {"term": "孟轲（孟子）", "keywords": ["孟轲（孟子）"]},
+    {"term": "告子", "keywords": ["告子"]},
+    {"term": "荀况（荀子）", "keywords": ["荀况（荀子）"]},
+    {"term": "老聃（老子）", "keywords": ["老聃（老子）"]},
+    {"term": "关尹（尹喜）", "keywords": ["关尹（尹喜）"]},
+    {"term": "杨朱", "keywords": ["杨朱"]},
+    {"term": "列御寇（列子）", "keywords": ["列御寇（列子）"]},
+    {"term": "文子", "keywords": ["文子"]},
+    {"term": "庄周（庄子）", "keywords": ["庄周（庄子）"]},
+    {"term": "田骈", "keywords": ["田骈"]},
+    {"term": "环渊", "keywords": ["环渊"]},
+    {"term": "管夷吾（管仲）", "keywords": ["管夷吾（管仲）"]},
+    {"term": "李悝（李克）", "keywords": ["李悝（李克）"]},
+    {"term": "卫鞅（商鞅）", "keywords": ["卫鞅（商鞅）"]},
+    {"term": "申不害", "keywords": ["申不害"]},
+    {"term": "慎到", "keywords": ["慎到"]},
+    {"term": "韩非", "keywords": ["韩非"]},
+    {"term": "李斯", "keywords": ["李斯"]},
+    {"term": "墨翟（墨子）", "keywords": ["墨翟（墨子）"]},
+    {"term": "禽滑釐", "keywords": ["禽滑釐"]},
+    {"term": "孟胜", "keywords": ["孟胜"]},
+    {"term": "宋钘", "keywords": ["宋钘"]},
+    {"term": "邓析", "keywords": ["邓析"]},
+    {"term": "惠施", "keywords": ["惠施"]},
+    {"term": "公孙龙", "keywords": ["公孙龙"]},
+    {"term": "尹文", "keywords": ["尹文"]},
+    {"term": "邹衍", "keywords": ["邹衍"]},
+    {"term": "邹奭", "keywords": ["邹奭"]},
+    {"term": "孙武", "keywords": ["孙武"]},
+    {"term": "吴起", "keywords": ["吴起"]},
+    {"term": "孙膑", "keywords": ["孙膑"]},
+    {"term": "鬼谷子（王诩）", "keywords": ["鬼谷子（王诩）"]},
+    {"term": "张仪", "keywords": ["张仪"]},
+    {"term": "苏秦", "keywords": ["苏秦"]},
+    {"term": "公孙衍（犀首）", "keywords": ["公孙衍（犀首）"]},
+    # ---- 3) SEP CANONICAL 26 词的中文别名（原有 24 词） ----
     {"term": "social contract",
      "keywords": ["社会契约", "契约论", "社会约定", "社会契约论", "social contract"]},
     {"term": "justice", "keywords": ["正义", "公正", "分配正义", "justice"]},
@@ -50,7 +171,7 @@ LEXICON: list[dict] = [
     {"term": "property",
      "keywords": ["财产", "财产权", "所有权", "私有制", "property"]},
     {"term": "revolution", "keywords": ["革命", "革命权", "revolution"]},
-    {"term": "liberalism", "keywords": ["自由主义", "liberalism"]},
+    {"term": "liberalism", "keywords": ["liberalism"]},
     {"term": "conservatism", "keywords": ["保守主义", "conservatism"]},
     {"term": "socialism", "keywords": ["社会主义", "socialism"]},
     {"term": "nationalism", "keywords": ["民族主义", "nationalism"]},
@@ -63,12 +184,12 @@ LEXICON: list[dict] = [
     {"term": "civil disobedience",
      "keywords": ["公民不服从", "非暴力反抗", "公民抗命", "civil disobedience"]},
     {"term": "legalism (chinese philosophy)",
-     "keywords": ["法家", "韩非", "商鞅", "legalism"]},
+     "keywords": ["法家", "商鞅", "legalism"]},
     {"term": "confucian political thought",
-     "keywords": ["儒家", "儒学", "孔孟", "仁政", "德治", "confucian"]},
+     "keywords": ["儒家", "儒学", "孔孟", "confucian"]},
     {"term": "chinese political philosophy",
      "keywords": ["中国政治思想", "中国政治哲学", "先秦诸子", "chinese political philosophy"]},
-    {"term": "confucius", "keywords": ["孔子", "论语", "confucius"]},
+    {"term": "confucius", "keywords": ["论语", "confucius"]},
     {"term": "mencius", "keywords": ["孟子", "mencius"]},
 ]
 

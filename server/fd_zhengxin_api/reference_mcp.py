@@ -2,15 +2,26 @@
 
 命名说明：reference_client.py 已被个人层消费面（任务 5.2/5.4，regions/anchor
 的 GET JSON 形态）占用，本模块承载三闭环的 MCP 四工具契约，名字分开、互不
-覆盖——两块消费面契约不同（GET JSON vs MCP tools/call），由主代理在接线期
-决定是否收敛。
+覆盖——两块消费面契约不同（GET JSON vs MCP tools/call）。
 
-契约（参照系 = fd-zhengxin-reference 仓的独立部署，本仓只消费不实现）：
-- 地址 FDZX__REFERENCE_BASE_URL（MCP streamable-http 端点，如 http://…/mcp）；
-- 四工具：concept_lookup(term) 概念（定义摘要+来源+SEP 链接）/
-  ideology_query(qid) 思潮坐标锚（P1142/P1387/MARPOR）/
-  relation_query(qid, polarity) 关系边（极性 + PID 依据）/
-  regime_timeseries(country, years) 政体时序；外加 source_status() 台账。
+契约（参照系 = fd-zhengxin-reference 仓的独立部署，本仓只消费不实现；D2 修复
+后以参照系 tools_placeholder.py 的真实签名为准，勿再漂移）：
+- 地址 FDZX__REFERENCE_BASE_URL（MCP streamable-http 端点，如 http://…/mcp；
+  配服务根亦可，mcp_http.resolve_endpoint 自动补 /mcp）；
+- 五工具（tools/list 实测签名）：
+    concept_lookup(term)                     概念（种子/近现代/SEP，行带 provenance）
+    ideology_query(name)                     思潮坐标锚（name 为 QID 或 label）
+    relation_query(source, target, polarity) 关系边（两端名/QID + 可选极性过滤）
+    regime_timeseries(country, indicator, years) 政体时序
+    source_status()                          台账
+- 行结构：id 锚在 provenance.stable_id（种子概念行另带 school/figures/weight，
+  种子边行带 source_name/target_name/school/weight/key_text/target_years——
+  详见 locate.py 的字段映射）；qid 不是通用键（种子/近现代行无 qid）。
+
+D1 修复（docs/e2e-local-report.md）：传输层不再单发 tools/call——改走
+mcp_http.MCPSessionTransport（initialize → notifications/initialized →
+tools/call，会话头 Mcp-Session-Id，与 infostream_client 共用同一实现），
+双响应体（application/json 与 SSE 帧）由共用传输解包为 payload dict。
 
 消费纪律照 docs/info-stream-probe.md 的实跑结论：
 - 空结果必带原因：参照系契约（errors taxonomy：blocked/upstream/unreachable/
@@ -21,21 +32,17 @@
 - 不自研重试堆栈（照 llm.py 铁律）：失败即降级，由调用方带原因返回；
 - FDZX__REFERENCE_BASE_URL 未配置是本地前置缺口（reason=not_configured），
   不冒充远端故障；
-- 无需 health-first 预检：参照系每个工具空结果自带 reason，与 fd-info 的
-  静默空列表不同（probe §5 差异点）；status() 仅供诊断与展示。
-
-传输形态：POST JSON-RPC 2.0 tools/call，Accept 同时给 json 与 event-stream，
-两种响应体（application/json 与 SSE data: 行）都能解。真实服务未部署期，
-调用一律可用注入的 transport 桩模拟（测试即此形态）。
+- 无需 health-first 预检：参照系每个工具空结果自带 reason；status() 仅供
+  诊断与展示。
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import config
+from .mcp_http import MCPSessionTransport
 
 # ---- 失败口径（与 fd-zhengxin-reference errors.py taxonomy 对齐） ----
 
@@ -78,95 +85,14 @@ class RefUpstream(RuntimeError):
     """可达但响应异常（非 200/坏体）→ reason=upstream。"""
 
 
-# transport 签名：(url, jsonrpc_payload, timeout) -> JSON-RPC 响应 dict
+# transport 签名：(tool, arguments, timeout) -> 工具 payload dict（envelope
+# 已由 mcp_http.MCPSessionTransport 解包；测试注入桩同签名）
 Transport = Callable[[str, dict, float], dict]
 
 
-def decode_body(text: str) -> dict:
-    """解 JSON-RPC 响应体：application/json 或 SSE（data: 行）两种都认。
-
-    SSE 取第一条带 result/error 的 data 行（MCP streamable-http 单响应场景）。
-    两种都解不出抛 RefUpstream。
-    """
-    raw = (text or "").strip()
-    if raw.startswith("{"):
-        try:
-            data = json.loads(raw)
-        except ValueError as exc:
-            raise RefUpstream(f"JSON 响应体解析失败：{exc}") from exc
-        if isinstance(data, dict):
-            return data
-        raise RefUpstream("JSON 响应体不是对象")
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        chunk = line[len("data:"):].strip()
-        try:
-            data = json.loads(chunk)
-        except ValueError:
-            continue
-        if isinstance(data, dict) and ("result" in data or "error" in data):
-            return data
-    raise RefUpstream("响应体既非 JSON 也无可解析的 SSE data 行")
-
-
-def http_transport(url: str, payload: dict, timeout: float) -> dict:
-    """默认传输：httpx 单次 POST，无重试（失败即抛，由 _call 归一降级）。"""
-    import httpx  # 延迟导入：缺 httpx 时仅参照系调用不可用，不影响包导入
-
-    try:
-        resp = httpx.post(
-            url,
-            json=payload,
-            timeout=httpx.Timeout(timeout, connect=CONNECT_TIMEOUT),
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            },
-        )
-    except httpx.HTTPError as exc:  # 含 TimeoutException / TransportError
-        raise RefUnreachable(f"{type(exc).__name__}: {exc}") from exc
-    if resp.status_code != 200:
-        raise RefUpstream(f"HTTP {resp.status_code}")
-    return decode_body(resp.text)
-
-
-def _first_text(result: dict) -> str | None:
-    for content in result.get("content") or []:
-        if (
-            isinstance(content, dict)
-            and content.get("type") == "text"
-            and isinstance(content.get("text"), str)
-        ):
-            return content["text"]
-    return None
-
-
-def _from_jsonrpc(tool: str, raw: Any) -> RefResult:
-    """JSON-RPC 响应 → RefResult：工具级空结果带 taxonomy reason 也归一为降级。"""
-    if not isinstance(raw, dict):
-        return RefResult(False, UPSTREAM, f"{tool}: 响应不是 JSON-RPC 对象")
-    if raw.get("error"):
-        err = raw["error"]
-        return RefResult(
-            False, UPSTREAM,
-            f"{tool}: JSON-RPC 错误 {err.get('code')}: {err.get('message')}",
-        )
-    result = raw.get("result")
-    if not isinstance(result, dict) or result.get("isError"):
-        text = _first_text(result) if isinstance(result, dict) else ""
-        return RefResult(
-            False, UPSTREAM,
-            f"{tool}: 工具级错误：{text or '响应缺 result 对象'}",
-        )
-    text = _first_text(result)
-    if text is None:
-        return RefResult(False, UPSTREAM, f"{tool}: 结果无 text content")
-    try:
-        payload = json.loads(text)
-    except ValueError:
-        return RefResult(False, UPSTREAM, f"{tool}: 工具输出不是 JSON：{text[:120]}")
+def _from_payload(tool: str, payload: Any) -> RefResult:
+    """工具 payload → RefResult：非空 results 透传；空结果带 taxonomy reason
+    也归一为降级；两者之外的口径视为上游异常（防参照系契约漂移）。"""
     if not isinstance(payload, dict):
         return RefResult(False, UPSTREAM, f"{tool}: 工具输出不是对象")
     results = payload.get("results")
@@ -179,6 +105,20 @@ def _from_jsonrpc(tool: str, raw: Any) -> RefResult:
         False, UPSTREAM,
         f"{tool}: 空结果未带合法 reason（taxonomy 外口径 {reason!r} 视为上游异常）",
     )
+
+
+def _classify_raw(tool: str, exc: Exception) -> RefResult:
+    """共用传输抛出的原始异常（httpx/ValueError）→ RefResult 分类归一。"""
+    import httpx  # 延迟导入：与 llm.py 同习惯
+
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, OSError)):
+        return RefResult(False, UNREACHABLE, f"参照系不可达（{tool}）：{exc}")
+    if isinstance(exc, httpx.HTTPStatusError):
+        return RefResult(False, UPSTREAM, f"参照系响应异常（{tool}）：HTTP {exc.response.status_code}")
+    if isinstance(exc, ValueError):
+        # 协议层（坏 envelope/坏 SSE/JSON-RPC error）→ 可达但响应异常
+        return RefResult(False, UPSTREAM, f"参照系响应异常（{tool}）：{exc}")
+    return RefResult(False, UNREACHABLE, f"参照系传输失败（{tool}）：{type(exc).__name__}: {exc}")
 
 
 class ReferenceClient:
@@ -194,7 +134,11 @@ class ReferenceClient:
         self.base_url = (
             base_url if base_url is not None else config.reference_base_url()
         ).strip()
-        self._transport = transport or http_transport
+        self._transport = transport or MCPSessionTransport(
+            self.base_url,
+            connect_timeout=CONNECT_TIMEOUT,
+            client_name="fd-zhengxin-reference-mcp",
+        )
         self.timeout = timeout
         self.status_timeout = status_timeout
 
@@ -205,46 +149,55 @@ class ReferenceClient:
                 "FDZX__REFERENCE_BASE_URL 未配置：参照系地址是硬前置，"
                 "未配置即冻结本闭环（不冒充远端故障）",
             )
-        envelope = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": tool, "arguments": args},
-        }
         try:
-            raw = self._transport(self.base_url, envelope, timeout or self.timeout)
+            payload = self._transport(tool, args, timeout or self.timeout)
         except RefUnreachable as exc:
             return RefResult(False, UNREACHABLE, f"参照系不可达（{tool}）：{exc}")
         except RefUpstream as exc:
             return RefResult(False, UPSTREAM, f"参照系响应异常（{tool}）：{exc}")
-        except Exception as exc:  # noqa: BLE001 —— 桩/序列化等未知失败，归一 unreachable
-            return RefResult(
-                False, UNREACHABLE,
-                f"参照系传输失败（{tool}）：{type(exc).__name__}: {exc}",
-            )
-        return _from_jsonrpc(tool, raw)
+        except Exception as exc:  # noqa: BLE001 —— 桩/网络/协议失败统一归一降级
+            return _classify_raw(tool, exc)
+        return _from_payload(tool, payload)
 
-    # ---- 契约面（四工具 + 台账） ----
+    # ---- 契约面（五工具，参数名照 tools/list 实测签名） ----
 
     def status(self) -> RefResult:
         """源状态台账（诊断/展示用；数据工具自带结构化 reason，无需预检）。"""
         return self._call("source_status", {}, self.status_timeout)
 
     def concept_lookup(self, term: str) -> RefResult:
-        """概念：定义摘要 + 来源 + SEP 链接（结果项带 id/qid，id 即引用锚）。"""
+        """概念：定义摘要 + 来源链接（行锚 = provenance.stable_id）。"""
         return self._call("concept_lookup", {"term": term})
 
-    def ideology_query(self, qid: str) -> RefResult:
-        """思潮坐标锚：P1142（意识形态）/P1387（政治取向）/MARPOR 立场编码。"""
-        return self._call("ideology_query", {"qid": qid})
+    def ideology_query(self, name: str) -> RefResult:
+        """思潮坐标锚：P1142（意识形态）/P1387（政治取向）/MARPOR；name 为
+        QID 或 label（D2：参数名 qid→name，照参照系实测签名）。"""
+        return self._call("ideology_query", {"name": name})
 
-    def relation_query(self, qid: str, polarity: str) -> RefResult:
-        """关系边：带极性（influenced_by/critical/…）与 PID 依据的离散边。"""
-        return self._call("relation_query", {"qid": qid, "polarity": polarity})
+    def relation_query(
+        self, source: str, target: str, polarity: str | None = None,
+    ) -> RefResult:
+        """关系边：两端（人物/实体标签或 QID）之间的师承/批判/论战边。
 
-    def regime_timeseries(self, country: str, years: str) -> RefResult:
+        D2：参照系关系面是**人物对**查询（source+target，双向收敛），不是
+        「某实体的全部边」；polarity 可选（inheritance/alliance/opposition/
+        critique / 种子 positive/critical），不传即全量。
+        """
+        args: dict[str, Any] = {"source": source, "target": target}
+        if polarity is not None:
+            args["polarity"] = polarity
+        return self._call("relation_query", args)
+
+    def regime_timeseries(
+        self, country: str, years: list[int] | None = None, indicator: str | None = None,
+    ) -> RefResult:
         """政体时序（V-Dem/MARPOR 指标；脉搏环消费，本三闭环暂不调）。"""
-        return self._call("regime_timeseries", {"country": country, "years": years})
+        args: dict[str, Any] = {"country": country}
+        if years is not None:
+            args["years"] = years
+        if indicator is not None:
+            args["indicator"] = indicator
+        return self._call("regime_timeseries", args)
 
 
 def client() -> ReferenceClient:

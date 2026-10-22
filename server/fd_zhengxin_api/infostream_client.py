@@ -21,20 +21,25 @@ fd-info 侧 5 工具也都声明 readOnlyHint: true。
 
 传输形态：MCP streamable-http（POST {base}/mcp，JSON-RPC 2.0，
 initialize → notifications/initialized → tools/call，会话头
-Mcp-Session-Id）。fd-info 未上产：FDZX__INFOSTREAM_BASE_URL 未设时
-任何调用立即抛 not_configured。测试可注入假 transport（可调用对象
-(tool, arguments, timeout) -> payload dict）离线回放。
+Mcp-Session-Id）——会话传输实现已提取到 mcp_http.py（与 reference_mcp 共用，
+D1 修复产物），本模块只保留 fd-info 侧的端点拼装与错误归类。fd-info 未上产：
+FDZX__INFOSTREAM_BASE_URL 未设时任何调用立即抛 not_configured。测试可注入假
+transport（可调用对象 (tool, arguments, timeout) -> payload dict）离线回放。
 """
 
 from __future__ import annotations
 
-import json
-import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import config
+from .mcp_http import (  # noqa: F401 —— 兼容 re-export（test_pulse 直调旧名）
+    MCP_HEADERS as _MCP_HEADERS,
+    parse_sse_text as _parse_sse_text,
+    unwrap_envelope as _unwrap_envelope,
+)
+from .mcp_http import MCPSessionTransport
 
 # ---- 结构化冻结原因（绝不静默空） ----
 
@@ -72,11 +77,6 @@ RETRY_BACKOFF_BASE = 0.25       # 退避 0.25s → 1.0s（指数 ×4），测试
 
 READ_METHODS = ("list_since", "get_item", "search_info", "stream_health")
 
-_MCP_HEADERS = {
-    "Content-Type": "application/json",
-    "Accept": "application/json, text/event-stream",
-}
-
 
 def _classify(exc: Exception) -> FrozenReason:
     """把传输层异常归类为结构化冻结原因。"""
@@ -89,118 +89,23 @@ def _classify(exc: Exception) -> FrozenReason:
     return FrozenReason("protocol_error", f"{type(exc).__name__}: {exc}")
 
 
-# ---- MCP streamable-http 传输（默认传输；测试可注入替身） ----
+# ---- MCP streamable-http 传输（实现已提取至 mcp_http.py，此处仅 fd-info 拼装） ----
 
 
-def _parse_sse_text(text: str, request_id: int) -> dict:
-    """从 text/event-stream 帧里解出对应 request id 的 JSON-RPC 消息。"""
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        payload = line[len("data:"):].strip()
-        if not payload:
-            continue
-        try:
-            msg = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(msg, dict) and msg.get("id") == request_id and "result" in msg:
-            return msg
-    raise ValueError(f"SSE 流中无 id={request_id} 的 JSON-RPC 结果帧")
+class MCPHTTPTransport(MCPSessionTransport):
+    """fd-info 形态的真实传输：base_url 是服务根，端点 = {base}/mcp。
 
-
-def _unwrap_envelope(envelope: dict) -> dict:
-    """tools/call 结果 → payload dict：result.content[0].text（JSON 串）解包。
-
-    fd-info 侧错误（如条目不存在）落在 payload 的 "error" 键，由调用方
-    判读，这里只解 JSON-RPC 层。
-    """
-    if not isinstance(envelope, dict):
-        raise ValueError(f"非对象 JSON-RPC 响应：{envelope!r}")
-    if envelope.get("error") is not None:
-        raise ValueError(f"JSON-RPC 错误响应：{envelope['error']!r}")
-    result = envelope.get("result")
-    if not isinstance(result, dict) or result.get("isError"):
-        raise ValueError(f"tools/call isError 响应：{result!r}")
-    content = result.get("content")
-    if not isinstance(content, list) or not content:
-        raise ValueError(f"tools/call 无 content：{result!r}")
-    text = content[0].get("text") if isinstance(content[0], dict) else None
-    if not isinstance(text, str):
-        raise ValueError(f"content[0] 无 text：{content[0]!r}")
-    payload = json.loads(text)
-    if not isinstance(payload, dict):
-        raise ValueError(f"工具返回非对象 payload：{payload!r}")
-    return payload
-
-
-class MCPHTTPTransport:
-    """真实传输：每次工具调用一条完整 MCP 会话（initialize → tools/call）。
-
-    只读低频轮询场景无需常驻会话；会话头逐次建立，失败无残留状态。
-    响应兼容 application/json 与 text/event-stream（SSE 帧）两种形态。
+    会话握手/双响应体解析/envelope 解包全部继承 mcp_http.MCPSessionTransport
+    （D1：勿在各客户端重抄会话头）。
     """
 
     def __init__(self, base_url: str, connect_timeout: float = CONNECT_TIMEOUT):
-        self._base = base_url.rstrip("/")
-        self._connect_timeout = connect_timeout
-
-    def __call__(self, tool: str, arguments: dict, timeout: float) -> dict:
-        import httpx
-
-        to = httpx.Timeout(timeout, connect=self._connect_timeout)
-        with httpx.Client(timeout=to) as http:
-            session = self._initialize(http)
-            if session:
-                # notifications/initialized：服务端 202/204 皆可，不校验
-                http.post(
-                    f"{self._base}/mcp",
-                    headers={**_MCP_HEADERS, "Mcp-Session-Id": session},
-                    json={"jsonrpc": "2.0", "method": "notifications/initialized"},
-                )
-            headers = {**_MCP_HEADERS, **({"Mcp-Session-Id": session} if session else {})}
-            resp = http.post(
-                f"{self._base}/mcp",
-                headers=headers,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "tools/call",
-                    "params": {"name": tool, "arguments": arguments},
-                },
-            )
-            resp.raise_for_status()
-            ctype = resp.headers.get("content-type", "")
-            if "text/event-stream" in ctype:
-                envelope = _parse_sse_text(resp.text, 2)
-            else:
-                envelope = resp.json()
-        return _unwrap_envelope(envelope)
-
-    def _initialize(self, http) -> str | None:
-        resp = http.post(
-            f"{self._base}/mcp",
-            headers=_MCP_HEADERS,
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "fd-zhengxin-infostream-client", "version": "0.1"},
-                },
-            },
+        base = base_url.rstrip("/")
+        endpoint = base if base.endswith("/mcp") else base + "/mcp"
+        super().__init__(
+            endpoint, connect_timeout=connect_timeout,
+            client_name="fd-zhengxin-infostream-client",
         )
-        resp.raise_for_status()
-        ctype = resp.headers.get("content-type", "")
-        envelope = (
-            _parse_sse_text(resp.text, 1) if "text/event-stream" in ctype else resp.json()
-        )
-        if not (isinstance(envelope, dict) and isinstance(envelope.get("result"), dict)):
-            raise ValueError(f"initialize 坏响应：{envelope!r}")
-        return resp.headers.get("mcp-session-id")
 
 
 Transport = Callable[[str, dict, float], dict]

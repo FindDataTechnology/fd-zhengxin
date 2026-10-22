@@ -1,23 +1,25 @@
 """谱系闭环（task 4.4）：政治概念/思潮进，按年代排序的演变链出。
 
 三段式（照 fd-zhesi loops.py 先例：参照系召回 → LLM 重排 → 引用校验）：
-1. 参照系召回：概念锚定（词表归一 → concept_lookup）→ relation_query 沿
-   influenced_by 边拉演变环节（hop1 概念实体；hop2 按权重下钻前几个环节的
-   实体，深度有界防漫游）；
+1. 参照系召回（D2 对齐后）：概念锚定（词表归一 → concept_lookup，锚=行
+   provenance.stable_id，行自带关联人物 figures）→ 概念人物对 + 边触及人物
+   的有界闭合经 relation_query 拉演变环节（深度有界防漫游）；
 2. LLM 重排：只从候选环清单里选环（index-only，链保持年代序——LLM 不能改
    变年序、不能发明环）；无 KEY / LLM 失败 → 确定性路径（召回序 + 规则
    打分：边权重），engine=deterministic；
-3. 引用校验：每环来源（source）必须指向参照系条目 id（候选集内），无锚
+3. 引用校验：每环来源（source）必须指向参照系行 stable_id（候选集内），无锚
    的环不出现在输出。
 
 演变链每环：人物/流派（kind）、年代（year）、关键文本（key_text）、所属
-学派（school）、来源（ref=参照系条目 id），按年代升序。
+学派（school）、来源（ref=参照系行 stable_id），按年代升序。年代取边行的
+curated 年代串保守解析（「约前372–前289」→ -372）。
 
 铁律：
-- 参照系断链处标注 gap 不编造环节——三类断链如实可见：
-  ① 边缺年代 → 不入链（no_year）；② 下钻空结果/失败 → 该环节后断链
-  （reason 透传参照系口径：not_ingested/unreachable/…）；③ 相邻两环年代
-  跨度超 GAP_YEARS → 标注中间无参照系环节（reference_break）；
+- 参照系断链处标注 gap 不编造环节——断链如实可见：
+  ① 概念锚无关联人物/单人物无可配对（no_pair_to_query）；② 边缺年代 → 不入
+  链（no_year）；③ 人物对空结果/失败 → 该环节后断链（reason 透传参照系
+  口径：not_ingested/unreachable/…）；④ 相邻两环年代跨度超 GAP_YEARS →
+  标注中间无参照系环节（reference_break）；
 - 产出过 guard_output 才可返回（publish 门在 looputil.publish_gate）；
 - LLM 调用经 llm_ledger.chat_logged(surface="genealogy") 记账。
 
@@ -34,13 +36,13 @@ from . import llm_ledger, looputil, personal, reference_mcp
 from .auth import require_user
 from .guard import Action
 from .llm import LLMError
-from .locate import _recall_edges
+from .locate import MAX_PAIRS_PER_ROUND, _recall_edges, anchor_from_row
 
 router = APIRouter(prefix="/api/v1/loops", tags=["loops"])
 
-HOP2_TARGETS = 3     # hop1 后按权重下钻的环节数（深度有界）
 GAP_YEARS = 300      # 相邻环年代跨度超过此值标注「中间无参照系环节」
 MAX_RINGS = 12
+MAX_HOPS = 2         # 有界闭合深度：概念人物对 + 边触及人物再配对，共两轮
 
 
 class GenealogyIn(BaseModel):
@@ -48,7 +50,7 @@ class GenealogyIn(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 参照系召回：概念锚 + 两跳 influenced_by 边（第一段）
+# 参照系召回：概念锚 + 人物对有界闭合（第一段）
 # ---------------------------------------------------------------------------
 
 
@@ -61,61 +63,71 @@ def _anchor_term(term: str) -> str:
 def _lookup_anchor(
     rc: reference_mcp.ReferenceClient, term: str
 ) -> tuple[dict | None, list[dict]]:
-    """concept_lookup → 概念锚（优先带 qid 的结果）。返回 (anchor|None, gaps)。"""
+    """concept_lookup → 概念锚（含 figures/school，D2 行结构）。返回 (anchor|None, gaps)。"""
     r = rc.concept_lookup(term)
     if not r.ok:
         return None, [{
             "stage": "reference", "reason": r.reason,
             "detail": f"concept_lookup({term!r})：{r.detail}",
         }]
-    results = [e for e in (r.data.get("results") or []) if isinstance(e, dict) and e.get("id")]
+    results = [
+        a for a in (
+            anchor_from_row(e, term) for e in (r.data.get("results") or [])
+        ) if a is not None
+    ]
     if not results:
         return None, [{
             "stage": "reference", "reason": "empty_concept",
             "detail": f"concept_lookup({term!r}) 返回空（参照系无该概念锚）",
         }]
-    entry = next((e for e in results if e.get("qid")), results[0])
-    return {
-        "term": str(entry.get("term") or term),
-        "ref": str(entry["id"]),
-        "title": str(entry.get("title") or ""),
-        "url": str(entry.get("url") or ""),
-        "qid": str(entry.get("qid") or ""),
-    }, []
+    results.sort(key=lambda a: -a["weight"])  # 带直挂权重（curated）的行优先
+    return results[0], []
 
 
 def recall_rings(
-    rc: reference_mcp.ReferenceClient, qid: str,
+    rc: reference_mcp.ReferenceClient, anchor: dict,
 ) -> tuple[list[dict], list[dict]]:
-    """两跳召回演变环节：hop1 概念实体的 influenced_by 边 + hop2 按权重下钻。
+    """演变环节召回（D2）：概念锚关联人物对 + 边触及人物的有界闭合配对。
 
-    返回 (edges, gaps)；edges 全局按 id 去重。断链处（下钻空结果/失败）在
-    gaps 里标注该环节名与原因，不编造后续环节。
+    参照系关系面是人物对（source+target）查询——hop1 为概念行 figures 两两
+    （_recall_edges；无对可配时由其记 no_pair_to_query 缺口），hop2 把 hop1
+    触及的 target 人物并入已知集合再配对（每轮上限 MAX_PAIRS_PER_ROUND，共
+    MAX_HOPS 轮）。返回 (edges, gaps)；edges 全局按 stable_id 去重，断链处
+    （空结果/失败）在 gaps 里标注人物对与原因，不编造后续环节。
     """
-    gaps: list[dict] = []
-    edges, hop1_gaps = _recall_edges(rc, [qid], polarities=("influenced_by",))
-    gaps.extend(hop1_gaps)
-
-    targets = sorted(
-        (e for e in edges if e["target_qid"]),
-        key=lambda e: (-e["weight"], e["id"]),
-    )[:HOP2_TARGETS]
+    edges, gaps = _recall_edges(rc, [anchor])
+    known: list[str] = [f["name"] for f in anchor.get("figures") or [] if f.get("name")]
+    frontier = [e["target_name"] for e in edges if e["target_name"]]
     seen = {e["id"] for e in edges}
-    for edge in targets:
-        hop2, hop2_gaps = _recall_edges(
-            rc, [edge["target_qid"]], polarities=("influenced_by",)
-        )
-        for g in hop2_gaps:
-            gaps.append({
-                "stage": "chain", "reason": g["reason"],
-                "detail": (
-                    f"「{edge['target_name'] or edge['target_qid']}」下钻断链：{g['detail']}"
-                ),
-            })
-        for e in hop2:
-            if e["id"] not in seen:
-                seen.add(e["id"])
-                edges.append(e)
+    for _hop in range(MAX_HOPS - 1):
+        if not frontier:
+            break
+        pairs: list[tuple[str, str]] = []
+        for a in frontier:
+            for b in known:
+                if a != b and (a, b) not in pairs and (b, a) not in pairs:
+                    pairs.append((a, b))
+        pairs = pairs[:MAX_PAIRS_PER_ROUND]
+        if not pairs:
+            break
+        new_targets: list[str] = []
+        for a, b in pairs:
+            round_edges, round_gaps = _recall_edges(
+                rc, [{**anchor, "figures": [{"name": a}, {"name": b}]}],
+            )
+            for g in round_gaps:
+                gaps.append({
+                    "stage": "chain", "reason": g["reason"],
+                    "detail": f"「{a}」相关下钻断链：{g['detail']}",
+                })
+            for e in round_edges:
+                if e["id"] and e["id"] not in seen:
+                    seen.add(e["id"])
+                    edges.append(e)
+                if e["target_name"] and e["target_name"] not in known:
+                    known.append(e["target_name"])
+                    new_targets.append(e["target_name"])
+        frontier = new_targets
     return edges, gaps
 
 
@@ -235,14 +247,9 @@ def genealogy(body: GenealogyIn, user_id: str = Depends(require_user)) -> dict:
     gaps.extend(anchor_gaps)
 
     edges: list[dict] = []
-    if anchor and anchor["qid"]:
-        edges, recall_gaps = recall_rings(rc, anchor["qid"])
+    if anchor is not None:
+        edges, recall_gaps = recall_rings(rc, anchor)
         gaps.extend(recall_gaps)
-    elif anchor:
-        gaps.append({
-            "stage": "chain", "reason": "no_entity_alignment",
-            "detail": "概念锚无实体 qid，参照系关系层不可查，无法建链",
-        })
 
     rings, chain_gaps = build_chain(edges)
     gaps.extend(chain_gaps)

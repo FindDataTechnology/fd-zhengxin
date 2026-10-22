@@ -1,9 +1,9 @@
 """多视角闭环（task 4.3）：已定位议题进，各学派 steel-man 解读 + 分歧结构出。
 
 三段式（照 fd-zhesi loops.py 先例：参照系召回 → LLM 构造 → 引用校验）：
-1. 召回各学派最强论证锚点：议题锚定（looputil 词表 → concept_lookup）→
-   relation_query 沿两类极性边（influenced_by / critical）拉各学派论证锚，
-   按参照系条目强度（边权重）排序，每学派取最强；
+1. 召回各学派最强论证锚点（D2 对齐后双来源）：议题锚定（looputil 词表 →
+   concept_lookup，概念行自带 school/weight 时直挂学派锚）→ 概念关联人物对
+   经 relation_query 拉各学派论证锚，按参照系行强度（权重）排序，每学派取最强；
 2. steel-man 构造：有 KEY 时 LLM 只准引用候选锚点 id 写 steel-man（引用校验
    过滤编造引用，无有效引用的 LLM 视图不用）；无 KEY / LLM 失败走确定性
    模板——不出 steel-man，转述各学派出典立场（form=sourced-stance），
@@ -40,7 +40,6 @@ router = APIRouter(prefix="/api/v1/loops", tags=["loops"])
 STEELMAN_MIN_WEIGHT = 0.30  # 学派最强锚点低于此强度不呈现（弱解读不冒充 steel-man）
 MAX_VIEWS = 5
 MAX_TERMS = 3
-MAX_QIDS = 2
 
 
 class PerspectivesIn(BaseModel):
@@ -53,11 +52,30 @@ class PerspectivesIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def school_views(edges: list[dict]) -> list[dict]:
-    """边 → 学派锚点分组：锚点按强度（边权重）降序，学派按最强锚点强度降序。"""
+def school_views(edges: list[dict], anchors: list[dict] | None = None) -> list[dict]:
+    """学派锚点分组（D2 对齐后双来源）：
+
+    - 概念锚直挂（anchors）：参照系概念行自带 school+weight（curated 直挂），
+      锚 stable_id 即引用锚——无关系边的概念（如单人物先秦概念、近现代思潮）
+      也能呈现带源学派视角；
+    - 关系边聚合（edges）：锚点按强度（边权重）降序，学派按最强锚点强度降序。
+    """
     groups: dict[str, dict] = {}
+    for order, anchor in enumerate(anchors or []):
+        if not anchor.get("school") or not anchor.get("ref"):
+            continue
+        group = groups.setdefault(
+            anchor["school"],
+            {"school": anchor["school"], "anchors": [], "stance": "", "order": order},
+        )
+        group["anchors"].append({
+            "ref": anchor["ref"],
+            "weight": anchor.get("weight", 0.0),
+            "polarity": "",
+            "key_text": anchor.get("definition") or "",
+        })
     for order, edge in enumerate(edges):
-        if not edge["school"] or not edge["id"]:
+        if not edge.get("school") or not edge.get("id"):
             continue
         group = groups.setdefault(
             edge["school"],
@@ -71,17 +89,29 @@ def school_views(edges: list[dict]) -> list[dict]:
         })
     out: list[dict] = []
     for school, group in groups.items():
-        anchors = sorted(
+        anchors_sorted = sorted(
             group["anchors"], key=lambda a: (-a["weight"], a["ref"])
         )
-        best = anchors[0]
+        best = anchors_sorted[0]
         stance_edge = next(
-            (e for e in edges if e["id"] == best["ref"]), None
+            (e for e in edges if e["id"] == best["ref"]), None,
         )
+        stance_anchor = next(
+            (a for a in (anchors or []) if a["ref"] == best["ref"]), None,
+        )
+        if stance_edge is not None:
+            stance = _edge_stance(stance_edge)
+        elif stance_anchor is not None:
+            stance = (
+                stance_anchor.get("definition")
+                or f"参照系概念锚（{stance_anchor.get('source', '')}）"
+            )
+        else:
+            stance = ""
         out.append({
             "school": school,
-            "stance": _edge_stance(stance_edge) if stance_edge else "",
-            "anchors": anchors,
+            "stance": stance,
+            "anchors": anchors_sorted,
             "strength": best["weight"],
             "order": group["order"],
         })
@@ -206,16 +236,16 @@ def perspectives(body: PerspectivesIn, user_id: str = Depends(require_user)) -> 
 
     anchors, anchor_gaps = _anchor_concepts(rc, body.topic)
     gaps.extend(anchor_gaps)
-    qids = list(dict.fromkeys(a["qid"] for a in anchors if a["qid"]))[:MAX_QIDS]
-    if anchors and not qids:
+    if anchors and not any(a.get("school") or a.get("figures") for a in anchors):
         gaps.append({
-            "stage": "anchoring", "reason": "no_entity_alignment",
-            "detail": "议题概念锚无实体 qid，参照系关系层不可查，无法召回学派锚点",
+            "stage": "anchoring", "reason": "no_school_anchor",
+            "detail": "议题概念锚既无学派直挂也无关联人物（如 SEP 引用行），"
+                      "参照系无可呈现的学派锚点",
         })
-    edges, edge_gaps = _recall_edges(rc, qids)
+    edges, edge_gaps = _recall_edges(rc, anchors)
     gaps.extend(edge_gaps)
 
-    groups = school_views(edges)
+    groups = school_views(edges, anchors)
     eligible = [g for g in groups if g["strength"] >= STEELMAN_MIN_WEIGHT][:MAX_VIEWS]
     for weak in groups:
         if weak["strength"] < STEELMAN_MIN_WEIGHT:

@@ -1,0 +1,348 @@
+{
+ "_meta": {
+  "what": "参照系（fd-zhengxin-reference）MCP 工具真实返回样例，固化为主服务解析层的契约 fixture（防两仓契约漂移）",
+  "captured_from": "fd-zhengxin-reference serve（隔离 /tmp 库，断网形态：FDZX_REF_PROXY/HTTP(S)_PROXY 指向 127.0.0.1:9）",
+  "captured_at": "2026-10-23",
+  "how_to_regen": "起参照系服务后用 fastmcp Client 逐工具 call_tool，把 content[0].text 解 JSON 后原样存入本文件（勿手改行结构）",
+  "note": "retrieved_at/as_of 为抓取当日值；断言只测结构不测日期。concept_lookup_miss 的 reason=unreachable 是断网形态下 SEP 腿主导的真实口径。"
+ },
+ "concept_lookup_renzheng": {
+  "results": [
+   {
+    "source": "china-seed",
+    "term": "仁政",
+    "title": "仁政",
+    "url": "https://zh.wikipedia.org/wiki/%E4%BB%81%E6%94%BF#china-seed",
+    "snippet": "以不忍人之心行不忍人之政，省刑罚、薄税敛的王政方案。｜原典：《孟子·梁惠王上》（ctext 只链不抄）",
+    "retrieved_at": "2026-10-22T21:56:08.561442+00:00",
+    "school": "儒家",
+    "figures": [
+     {
+      "name": "孟轲（孟子）",
+      "years": "约前372–前289"
+     }
+    ],
+    "weight": 1.0,
+    "provenance": {
+     "source": "china-seed",
+     "stable_id": "china-seed:concept:仁政",
+     "as_of": "2026-10-23",
+     "attribution": "先秦诸子种子谱系（curated 结构化数据）：中文维基百科条目群底稿（编辑版 CC BY-SA 4.0，条目名署名）+ Wikidata QID 对齐（CC0）+ ctext.org 篇目锚（只链不抄）",
+     "snapshot_version": "china-seed@1.0.0#5415dd20d9b3"
+    }
+   }
+  ],
+  "sources": {
+   "china-seed": {
+    "status": "ok",
+    "rows": 1
+   },
+   "modern-index": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "近现代五思潮索引无 '仁政'（按思潮全称精确匹配，如「维新变法思潮」）"
+   },
+   "sep": {
+    "status": "miss",
+    "reason": "unreachable",
+    "hint": "SEP 搜索端点不可达（ConnectError: All connection attempts failed）"
+   }
+  }
+ },
+ "concept_lookup_liberalism": {
+  "results": [
+   {
+    "source": "modern-index",
+    "label": "自由主义思潮",
+    "summary": "新文化—新月系的自由主义论战文献（问题与主义、文学革命、人权论战）。",
+    "documents": [
+     {
+      "title": "文學改良芻議",
+      "author": "胡适",
+      "year": "1917",
+      "url": "https://zh.wikisource.org/wiki/文學改良芻議",
+      "form": "原文全文"
+     },
+     {
+      "title": "多研究些问题，少谈些“主义”",
+      "author": "胡适",
+      "year": "1919",
+      "url": "https://zh.wikisource.org/wiki/多研究些问题，少谈些“主义”",
+      "form": "原文全文"
+     },
+     {
+      "title": "人權與約法",
+      "author": "胡适",
+      "year": "1929",
+      "url": "https://zh.wikisource.org/wiki/人權與約法",
+      "form": "原文全文"
+     },
+     {
+      "title": "新青年",
+      "author": null,
+      "year": "1915–1926",
+      "url": "https://zh.wikisource.org/wiki/新青年",
+      "form": "期刊汇集页"
+     }
+    ],
+    "school": "自由主义思潮",
+    "weight": 1.0,
+    "provenance": {
+     "source": "modern-index",
+     "stable_id": "modern:china/current/liberalism",
+     "as_of": "2026-10-23",
+     "attribution": "中国近现代思潮文献索引：维基文库（底本公版，编辑版 CC BY-SA 4.0）+ 维基共享国图 NLC 原刊扫描（Public domain, Credit: National Library of China）；索引只存条目元数据与链接，不存正文",
+     "snapshot_version": "china-modern-index@2026-10-23#4836380d4e7d"
+    }
+   }
+  ],
+  "sources": {
+   "china-seed": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "库内种子概念无 '自由主义思潮'（先秦谱系 50 概念，精确标签匹配）"
+   },
+   "modern-index": {
+    "status": "ok",
+    "rows": 1
+   },
+   "sep": {
+    "status": "miss",
+    "reason": "unreachable",
+    "hint": "SEP 搜索端点不可达（ConnectError: All connection attempts failed）"
+   }
+  }
+ },
+ "concept_lookup_miss": {
+  "results": [],
+  "reason": "unreachable",
+  "hint": "china-seed：库内种子概念无 '螺旋史学本体论'（先秦谱系 50 概念，精确标签匹配）；modern-index：近现代五思潮索引无 '螺旋史学本体论'（按思潮全称精确匹配，如「维新变法思潮」）；sep：SEP 搜索端点不可达（ConnectError: All connection attempts failed）",
+  "sources": {
+   "china-seed": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "库内种子概念无 '螺旋史学本体论'（先秦谱系 50 概念，精确标签匹配）"
+   },
+   "modern-index": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "近现代五思潮索引无 '螺旋史学本体论'（按思潮全称精确匹配，如「维新变法思潮」）"
+   },
+   "sep": {
+    "status": "miss",
+    "reason": "unreachable",
+    "hint": "SEP 搜索端点不可达（ConnectError: All connection attempts failed）"
+   }
+  }
+ },
+ "relation_query_mengzi_sikong": {
+  "results": [
+   {
+    "source": "china-seed",
+    "source_id": "seed:china/thinker/zisi",
+    "target_id": "seed:china/thinker/mengzi",
+    "kind": "influence",
+    "polarity": "positive",
+    "snapshot_version": "china-seed@1.0.0#5415dd20d9b3",
+    "source_name": "孔伋（子思）",
+    "source_school": "儒家",
+    "target_name": "孟轲（孟子）",
+    "target_school": "儒家",
+    "target_years": "约前372–前289",
+    "school": "儒家",
+    "weight": 1.0,
+    "key_text": "「受业子思之门人」",
+    "provenance": {
+     "source": "china-seed",
+     "stable_id": "china-seed:relation:seed:china/thinker/zisi>seed:china/thinker/mengzi",
+     "as_of": "2026-10-23",
+     "attribution": "先秦诸子种子谱系（curated 结构化数据）：中文维基百科条目群底稿（编辑版 CC BY-SA 4.0，条目名署名）+ Wikidata QID 对齐（CC0）+ ctext.org 篇目锚（只链不抄）",
+     "snapshot_version": "china-seed@1.0.0#5415dd20d9b3"
+    }
+   }
+  ],
+  "sources": {
+   "wikidata": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "'孟轲（孟子）'、'孔伋（子思）' 未命中 wikidata 政治面（QID 直填或 label 精确匹配；未摄取或不在种子邻域内）"
+   },
+   "china-seed": {
+    "status": "ok",
+    "rows": 1
+   }
+  }
+ },
+ "ideology_query_not_ingested": {
+  "results": [],
+  "reason": "not_ingested",
+  "hint": "wikidata：Q42 无坐标锚（P1142 意识形态 / P1387 政治倾向）。可能是未摄取（先 ingest_wikidata_politics），或该实体在 WD 本就无坐标值；锚主要落在政党/运动面（探针使用量 15,257 / 3,804）。；marpor：MARPOR 许可门未通过（自定义 Terms of Use（强制引用；再分发默认禁止、须书面授权））：再分发须书面授权、三点待人工确认（docs/data-license.md §2），未摄取任何数据；过门前本查询恒为空。",
+  "sources": {
+   "wikidata": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "Q42 无坐标锚（P1142 意识形态 / P1387 政治倾向）。可能是未摄取（先 ingest_wikidata_politics），或该实体在 WD 本就无坐标值；锚主要落在政党/运动面（探针使用量 15,257 / 3,804）。"
+   },
+   "marpor": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "MARPOR 许可门未通过（自定义 Terms of Use（强制引用；再分发默认禁止、须书面授权））：再分发须书面授权、三点待人工确认（docs/data-license.md §2），未摄取任何数据；过门前本查询恒为空。",
+    "gate_status": "license_unconfirmed",
+    "gate_detail": "自定义 Terms of Use（强制引用；再分发默认禁止、须书面授权）"
+   }
+  }
+ },
+ "source_status": {
+  "results": [
+   {
+    "source": "v-dem",
+    "probe": null,
+    "expectation": "政体指标时序（国家×年，v2x_* 等指数），许可已核验（CC BY-SA 4.0），官方 CSV 人工下载后 ingest_vdem 落库",
+    "status": "not_ingested",
+    "reason": "not_ingested"
+   },
+   {
+    "source": "marpor",
+    "probe": null,
+    "expectation": "政党宣言立场编码（rile 等），许可三点未确认（docs/data-license.md §2），确认前不摄取",
+    "status": "not_ingested",
+    "reason": "license_unconfirmed",
+    "gate_detail": "自定义 Terms of Use（强制引用；再分发默认禁止、须书面授权）"
+   },
+   {
+    "source": "wikidata",
+    "probe": null,
+    "expectation": "政治实体/思潮 QID 对齐与关系边（P1142/P1387 坐标锚、极性边），ingest_wikidata_politics 摄取（探针样本见 docs/wikidata-probe-samples/）",
+    "status": "not_ingested",
+    "reason": "not_ingested"
+   },
+   {
+    "source": "sep",
+    "probe": null,
+    "expectation": "概念引用层（on-demand 缓存，覆盖面见 docs/sep-coverage.md），concept_lookup 调用时自动建立",
+    "status": "not_ingested",
+    "detail": null,
+    "reason": "not_ingested"
+   },
+   {
+    "source": "china-seed",
+    "probe": null,
+    "expectation": "先秦诸子 curated 种子谱系（人工提炼结构化数据，非外部语料摄取，不走 china-line 语料许可门）；create_server 启动钩子幂等加载",
+    "status": "ok",
+    "as_of": "2026-10-22T21:56:08.561442+00:00",
+    "snapshot": {
+     "snapshot_id": "china-seed@1.0.0#5415dd20d9b3",
+     "version": "1.0.0",
+     "fetched_at": "2026-10-23",
+     "sha256": "5415dd20d9b38548e3b0ccb50373138cbfc68cfd8cc6bee949deb2abc0204c5f",
+     "probe_status": "available"
+    }
+   },
+   {
+    "source": "modern-index",
+    "probe": null,
+    "expectation": "近现代五思潮文献索引（docs/china-modern-sources.md 固化，只存条目元数据与链接）；create_server 启动钩子幂等加载",
+    "status": "ok",
+    "as_of": "2026-10-22T21:56:08.562784+00:00",
+    "snapshot": {
+     "snapshot_id": "china-modern-index@2026-10-23#4836380d4e7d",
+     "version": "2026-10-23",
+     "fetched_at": "2026-10-22T21:56:08.562648+00:00",
+     "sha256": "4836380d4e7db4db7870f59367518167a393fba074b2834c6d60c0e5909bed69",
+     "probe_status": "available"
+    }
+   }
+  ],
+  "provenance": {
+   "source": "fd-zhengxin-reference",
+   "stable_id": "ingest-log",
+   "as_of": "2026-10-22T21:56:08.562784+00:00",
+   "snapshot_version": null
+  }
+ },
+ "concept_lookup_zhongshu": {
+  "results": [
+   {
+    "source": "china-seed",
+    "term": "忠恕",
+    "title": "忠恕",
+    "url": "https://zh.wikipedia.org/wiki/%E5%BF%A0%E6%81%95#china-seed",
+    "snippet": "尽己之谓忠、推己之谓恕的实践总则。｜原典：《论语·里仁》（ctext 只链不抄）",
+    "retrieved_at": "2026-10-22T21:56:08.561442+00:00",
+    "school": "儒家",
+    "figures": [
+     {
+      "name": "孔子",
+      "years": "前551–前479"
+     },
+     {
+      "name": "曾参（曾子）",
+      "years": "约前505–前435"
+     }
+    ],
+    "weight": 1.0,
+    "provenance": {
+     "source": "china-seed",
+     "stable_id": "china-seed:concept:忠恕",
+     "as_of": "2026-10-23",
+     "attribution": "先秦诸子种子谱系（curated 结构化数据）：中文维基百科条目群底稿（编辑版 CC BY-SA 4.0，条目名署名）+ Wikidata QID 对齐（CC0）+ ctext.org 篇目锚（只链不抄）",
+     "snapshot_version": "china-seed@1.0.0#5415dd20d9b3"
+    }
+   }
+  ],
+  "sources": {
+   "china-seed": {
+    "status": "ok",
+    "rows": 1
+   },
+   "modern-index": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "近现代五思潮索引无 '忠恕'（按思潮全称精确匹配，如「维新变法思潮」）"
+   },
+   "sep": {
+    "status": "miss",
+    "reason": "unreachable",
+    "hint": "SEP 搜索端点不可达（ConnectError: All connection attempts failed）"
+   }
+  }
+ },
+ "relation_query_kongzi_zengzi": {
+  "results": [
+   {
+    "source": "china-seed",
+    "source_id": "seed:china/thinker/kongzi",
+    "target_id": "seed:china/thinker/zengzi",
+    "kind": "influence",
+    "polarity": "positive",
+    "snapshot_version": "china-seed@1.0.0#5415dd20d9b3",
+    "source_name": "孔子",
+    "source_school": "儒家",
+    "target_name": "曾参（曾子）",
+    "target_school": "儒家",
+    "target_years": "约前505–前435",
+    "school": "儒家",
+    "weight": 1.0,
+    "key_text": "「参乎！吾道一以贯之」，曾子曰「唯」",
+    "provenance": {
+     "source": "china-seed",
+     "stable_id": "china-seed:relation:seed:china/thinker/kongzi>seed:china/thinker/zengzi",
+     "as_of": "2026-10-23",
+     "attribution": "先秦诸子种子谱系（curated 结构化数据）：中文维基百科条目群底稿（编辑版 CC BY-SA 4.0，条目名署名）+ Wikidata QID 对齐（CC0）+ ctext.org 篇目锚（只链不抄）",
+     "snapshot_version": "china-seed@1.0.0#5415dd20d9b3"
+    }
+   }
+  ],
+  "sources": {
+   "wikidata": {
+    "status": "miss",
+    "reason": "not_ingested",
+    "hint": "'孔子'、'曾参（曾子）' 未命中 wikidata 政治面（QID 直填或 label 精确匹配；未摄取或不在种子邻域内）"
+   },
+   "china-seed": {
+    "status": "ok",
+    "rows": 1
+   }
+  }
+ }
+}

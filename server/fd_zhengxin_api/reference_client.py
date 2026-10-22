@@ -1,14 +1,20 @@
-"""参照系只读客户端（task 5.2/5.4 的参照系消费面，留位期）。
+"""参照系只读 REST 消费面（task 5.2/5.4：学习地图坐标系 + 复述校验前提锚）。
 
-参照系（政治思想参照系）是独立服务（地址 FDZX__REFERENCE_BASE_URL，见
-config.reference_base_url），物理分库铁律下本模块对它**只读**、降级友好：
+参照系（fd-zhengxin-reference）的 HTTP 面有三块：/mcp（MCP 工具面，
+reference_mcp 消费）、/api/v1/regions 与 /api/v1/concepts/{topic}/anchor
+（个人层只读 REST 锚点面，本模块消费）。地址共用 FDZX__REFERENCE_BASE_URL
+（该变量对 MCP 面是 streamable-http 端点，通常以 /mcp 结尾）——本模块经
+service_root() 把 /mcp 后缀剥掉得到 REST 根，一个变量两副面孔不再冲突
+（D3 修复；配服务根亦可，两种形态都认）。
+
+物理分库铁律下本模块对参照系**只读**、降级友好：
 
 - 未配置地址 → 明确返回 (None, "not_configured")，调用方走降级路径并标注；
 - 不可达 / 非 2xx / 坏负载 → (None, "unreachable:<原因类型>")，绝不静默为空
   （照参照系「失败口径」纪律：空结果必附原因）；
-- 参照系服务尚未成型（task 2.x 接线期），因此负载解析保持宽容：
-  认 regions / results / 裸列表，认 key_points / anchors / premises，
-  条目可以是字符串或带 name/text 的对象。真实契约定型后在收敛点对齐。
+- 解析保持宽容：认 regions / results / 裸列表，认 key_points / anchors /
+  premises，条目可以是字符串或带 name/text 的对象——参照系 REST 面已按
+  {regions:[{name}]} / {key_points:[str]} 形态落定，宽容层留给形态演进。
 
 超时短（默认 5s）、无重试：个人层体验优先，参照系慢即降级。
 """
@@ -20,9 +26,21 @@ from typing import Any
 from . import config
 
 
-def _get_json(path: str, timeout: float = 5.0) -> Any:
-    """GET {base}{path} → JSON；未配置返回 None；任何失败抛异常（调用方归一）。"""
+def service_root() -> str:
+    """FDZX__REFERENCE_BASE_URL → REST 根（剥掉 MCP 端点的 /mcp 后缀）。
+
+    - ``http://host:8031/mcp`` → ``http://host:8031``（MCP 端点形态，惯用）；
+    - ``http://host:8031``     → 原样（已是服务根）。
+    """
     base = config.reference_base_url().rstrip("/")
+    if base.endswith("/mcp"):
+        return base[: -len("/mcp")]
+    return base
+
+
+def _get_json(path: str, timeout: float = 5.0) -> Any:
+    """GET {REST 根}{path} → JSON；未配置返回 None；任何失败抛异常（调用方归一）。"""
+    base = service_root()
     if not base:
         return None
     import httpx  # 延迟导入：环境缺 httpx 时仅参照系消费不可用，降级不受影响
