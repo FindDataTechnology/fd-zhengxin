@@ -8,7 +8,7 @@
 | 项 | 值（接入期填） |
 |---|---|
 | 建议域名 | `zhengxin.finddatatech.cloud`（与 lex./zhesi. 同族；有 `*.finddatatech.cloud` 泛域名证书可直接用） |
-| 回源地址 | `http://<cheap 节点>:31890`（fd-zhengxin-web NodePort，deploy/k8s 占位值） |
+| 回源地址 | `http://<cheap 节点>:31907`（fd-zhengxin-web NodePort，deploy/k8s 占位值） |
 | 回源协议 | HTTP（集群内无 TLS），对外 HTTPS + HTTP→HTTPS 跳转 |
 | 说明 | **只需要这一个站点**。API（fd-zhengxin-api）不单独暴露——web 的 nginx 已把 `/api/` 反代到集群内 api 服务；参照系服务走内网/网关注册通道，不直接上公网 |
 
