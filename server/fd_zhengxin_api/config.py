@@ -75,3 +75,14 @@ def reference_base_url() -> str:
     骨架期仅配置留位；未设时调用方不得访问参照系（照「缺口如实可见」）。
     """
     return env("REFERENCE_BASE_URL")
+
+
+# ---- 口径守卫 ----
+
+def guard_overlay_path() -> str:
+    """客户侧规则叠加文件路径（FDZX__GUARD_OVERLAY，私有化部署自带）。
+
+    overlay 只能新增规则或收紧 severity（grey→block），放宽/删规则会被
+    guard_overlay.load_ruleset 拒绝；未设即无叠加，用基线规则库 v1。
+    """
+    return env("GUARD_OVERLAY")

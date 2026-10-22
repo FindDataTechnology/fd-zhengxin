@@ -8,8 +8,12 @@
 - Action.BLOCK（拦）：不呈现，调用方拿到拦截原因结构；
 - Action.GREY（标灰）：可呈现但置灰降权，附原因供界面标注。
 
-规则库留空接口：rules() 骨架期返回空表（全部放行），接线期逐条填充；
-规则只增不改，每条规则命中即产出 Reason（结构化拦截原因）。
+两个面：
+- check(text) / rules()：文本级骨架接口（既有口径，测试守住空表放行）；
+- guard_output(payload, ruleset)：publish 前统一拦截面——四闭环候选产出
+  （topic / is_contemporary / claims / views / body）过守卫，规则库 v1
+  见 guard_rules.py，动作非 None 即不得原样呈现（None = 干净放行，
+  放行不是动作、更不得伪装成推荐）。
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ class Verdict:
 
     action: Action | None = None
     reasons: list[Reason] = field(default_factory=list)
+    ruleset_version: str = ""   # 裁决所用规则库版本（口径审计回放用）
 
 
 class Rule(Protocol):
@@ -69,6 +74,37 @@ def check(text: str) -> Verdict:
     verdict = Verdict()
     for rule in rules():
         reason = rule.match(text)
+        if reason is None:
+            continue
+        verdict.reasons.append(reason)
+        if verdict.action is None or _SEVERITY[rule.action] > _SEVERITY[verdict.action]:
+            verdict.action = rule.action
+    return verdict
+
+
+def guard_output(payload: dict, ruleset: list | None = None) -> Verdict:
+    """publish 前统一拦截面：四闭环候选产出过守卫。
+
+    payload 是候选产出的统一结构：{topic, is_contemporary, claims[{text,
+    source?}], views[{school, stance}], body}；正则规则扫 body，结构化规则
+    检查 claims/views。动作只有两种：block（拦，不呈现）/ grey（标灰，
+    呈现但置灰降权）；无命中时 action=None（干净放行——放行不是动作）。
+    多条命中取最严（block > grey）并聚合全部 Reason。
+
+    ruleset 缺省用规则库 v1（guard_rules.v1()，版本号随裁决带回）；传
+    自定义规则集（如 guard_overlay.load_ruleset 的收紧组合）时版本号留空，
+    由调用方自行标注。
+    """
+    from . import guard_rules  # 延迟导入：guard_rules 复用本模块的 Action/Reason
+
+    if ruleset is None:
+        ruleset = guard_rules.v1()
+        version = guard_rules.RULESET_VERSION
+    else:
+        version = ""
+    verdict = Verdict(ruleset_version=version)
+    for rule in ruleset:
+        reason = rule.apply(payload or {})
         if reason is None:
             continue
         verdict.reasons.append(reason)
