@@ -11,7 +11,8 @@ llm.py 契约（不改，包装层适配）：
   无成本——本层不记账、不崩溃（调用方照常走确定性回退）；
 - 设了 KEY 后失败抛 LLMError——先记 error 行再原样上抛，由调用方降级。
 
-token 口径（如实）：llm.chat 只返回补全文本，不暴露网关 usage，因此
+token 口径（如实）：优先采网关回报的 usage（usage_method="usage"，4.6 对账口径）；
+网关不回报时退回估算——
 prompt/completion token 用确定性启发式估算（CJK 1 字 ≈ 1 token，其余
 ≈ 4 字符/token），usage_method 列恒为 "estimated"——不冒充实测值。
 
@@ -112,15 +113,19 @@ def record(
     conn: sqlite3.Connection, *, surface: str, model: str,
     prompt_tokens: int, completion_tokens: int,
     outcome: str = "ok", detail: str | None = None,
+    usage_method: str = "estimated",
 ) -> str:
-    """落一行台账（通常不经此函数，走 chat_logged / ledgered）。"""
+    """落一行台账（通常不经此函数，走 chat_logged / ledgered）。
+
+    usage_method："usage"=网关回报的实测数；"estimated"=本地估算（不冒充实测）。
+    """
     _check_surface(surface)
     conn.executescript(LEDGER_DDL)  # 幂等建表（外部注入的连接同样确保表在）
     lid = _new_id()
     conn.execute(
         "INSERT INTO llm_ledger (id, surface, model, prompt_tokens, completion_tokens,"
         " usage_method, outcome, detail, at) VALUES (?,?,?,?,?,?,?,?,?)",
-        (lid, surface, model, prompt_tokens, completion_tokens, "estimated",
+        (lid, surface, model, prompt_tokens, completion_tokens, usage_method,
          outcome, detail, _now()),
     )
     conn.commit()
@@ -152,7 +157,7 @@ def chat_logged(
     conn = conn or connect()
     try:
         try:
-            content = llm.chat(
+            out = llm.chat_with_usage(
                 messages, model=model, temperature=temperature,
                 max_tokens=max_tokens, timeout=timeout,
             )
@@ -163,11 +168,23 @@ def chat_logged(
                 outcome="error", detail=str(exc),
             )
             raise
-        record(
-            conn, surface=surface, model=resolved_model,
-            prompt_tokens=prompt_tokens, completion_tokens=estimate_tokens(content),
-            outcome="ok",
-        )
+        content = out["content"]
+        usage = out.get("usage") or {}
+        if usage.get("prompt_tokens") is not None:
+            # 网关回报实测值：台账数字与网关侧同源（4.6 对账口径）
+            record(
+                conn, surface=surface, model=resolved_model,
+                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                completion_tokens=int(usage.get("completion_tokens") or 0),
+                outcome="ok", usage_method="usage",
+            )
+        else:
+            record(
+                conn, surface=surface, model=resolved_model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=estimate_tokens(content),
+                outcome="ok",
+            )
         return content
     finally:
         if own:

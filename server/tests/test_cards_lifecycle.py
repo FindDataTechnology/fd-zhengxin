@@ -217,9 +217,9 @@ def test_llm_synonym_enhancement(monkeypatch) -> None:
 
     def fake_chat(messages, **kw):
         calls.append(messages)
-        return '{"covered": true}'
+        return {"content": '{"covered": true}', "usage": None}
 
-    monkeypatch.setattr(llm_mod, "chat", fake_chat)
+    monkeypatch.setattr(llm_mod, "chat_with_usage", fake_chat)
     body = _create(MID_DIGEST)
     v = body["verification"]
     assert v["engine"] == "deterministic+llm"
@@ -238,7 +238,7 @@ def test_llm_failure_falls_back(monkeypatch) -> None:
     def boom(*a, **kw):
         raise LLMError("down")
 
-    monkeypatch.setattr(llm_mod, "chat", boom)
+    monkeypatch.setattr(llm_mod, "chat_with_usage", boom)
     body = _create(MID_DIGEST)
     v = body["verification"]
     assert v["engine"] == "deterministic+llm-fallback"

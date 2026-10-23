@@ -59,3 +59,44 @@ def chat(
         return content.strip()
     except Exception as exc:  # noqa: BLE001 —— 单次失败即抛，绝不重试
         raise LLMError(f"LLM 网关调用失败: {type(exc).__name__}: {exc}") from exc
+
+
+def chat_with_usage(
+    messages: list[dict[str, str]],
+    *,
+    model: str | None = None,
+    temperature: float = 0.2,
+    max_tokens: int = 1024,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """chat() 的台账形态：补全文本 + 网关回报的 usage（无则 None）。
+
+    台账（llm_ledger）用 usage 记实测 token（usage_method="usage"）；网关不回报
+    时返回 usage=None，由台账退回估算口径。失败口径与 chat() 一致。
+    """
+    key = config.llm_api_key()
+    if not key:
+        return {"content": None, "usage": None}
+    base = config.llm_base_url().rstrip("/")
+    payload: dict[str, Any] = {
+        "model": model or config.llm_model(),
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    try:
+        resp = httpx.post(
+            f"{base}/chat/completions",
+            json=payload,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("empty content")
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+        return {"content": content.strip(), "usage": usage}
+    except Exception as exc:  # noqa: BLE001
+        raise LLMError(f"LLM 网关调用失败: {type(exc).__name__}: {exc}") from exc

@@ -173,22 +173,22 @@ def test_classify_grey_never_passes(monkeypatch) -> None:
                "body": "灰区内容"}
 
     monkeypatch.setattr(guard_llm.llm, "is_configured", lambda: True)
-    monkeypatch.setattr(guard_llm.llm, "chat", lambda *a, **k: "clean")
+    monkeypatch.setattr(guard_llm.llm_ledger, "chat_logged", lambda *a, **k: "clean")
     d = guard_llm.classify_grey(payload)
     assert d.action is Action.GREY and d.llm_opinion == "clean" and d.reason_code == ""
 
-    monkeypatch.setattr(guard_llm.llm, "chat", lambda *a, **k: "risky")
+    monkeypatch.setattr(guard_llm.llm_ledger, "chat_logged", lambda *a, **k: "risky")
     d2 = guard_llm.classify_grey(payload)
     assert d2.action is Action.GREY and d2.llm_opinion == "risky"
 
     def _boom(*a, **k):
         raise guard_llm.llm.LLMError("timeout")
 
-    monkeypatch.setattr(guard_llm.llm, "chat", _boom)
+    monkeypatch.setattr(guard_llm.llm_ledger, "chat_logged", _boom)
     d3 = guard_llm.classify_grey(payload)
     assert d3.action is Action.GREY and d3.reason_code == "llm_error"
 
-    monkeypatch.setattr(guard_llm.llm, "chat", lambda *a, **k: "无法判断")
+    monkeypatch.setattr(guard_llm.llm_ledger, "chat_logged", lambda *a, **k: "无法判断")
     d4 = guard_llm.classify_grey(payload)
     assert d4.action is Action.GREY and d4.reason_code == "llm_unparseable"
 

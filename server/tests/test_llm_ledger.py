@@ -18,9 +18,13 @@ def conn(tmp_path):
         c.close()
 
 
-def _fake_llm(monkeypatch, content: str) -> None:
+def _fake_llm(monkeypatch, content: str, usage: dict | None = None) -> None:
+    """桩 chat_with_usage（ledger 实际走的入口）：无 usage → 估算口径。"""
     monkeypatch.setattr(llm, "is_configured", lambda: True)
-    monkeypatch.setattr(llm, "chat", lambda messages, **kw: content)
+    monkeypatch.setattr(
+        llm, "chat_with_usage",
+        lambda messages, **kw: {"content": content, "usage": usage},
+    )
 
 
 # ---- surface 清单与校验 ----
@@ -90,13 +94,33 @@ def test_chat_logged_records_model_param(monkeypatch, conn) -> None:
 # ---- 失败路径：记账并上抛 ----
 
 
+def test_gateway_usage_recorded_as_usage(monkeypatch, conn) -> None:
+    """4.6 对账口径：网关回报 usage 时台账记实测数且 usage_method="usage"。"""
+    _fake_llm(
+        monkeypatch, "答复文本",
+        usage={"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46},
+    )
+    llm_ledger.chat_logged(
+        [{"role": "user", "content": "这段活很长，估算值会跟实测差很远"}],
+        surface="locate", conn=conn,
+    )
+    row = llm_ledger.list_entries(conn=conn)[0]
+    assert row["usage_method"] == "usage"
+    assert row["prompt_tokens"] == 12 and row["completion_tokens"] == 34
+    summary = llm_ledger.ledger_summary(surface="locate", conn=conn)
+    assert summary["total_tokens"] == 46
+
+
+# ---- 失败路径：记账并上抛 ----
+
+
 def test_chat_logged_records_error_and_reraises(monkeypatch, conn) -> None:
     monkeypatch.setattr(llm, "is_configured", lambda: True)
 
     def _boom(messages, **kw):
         raise llm.LLMError("LLM 网关调用失败: ConnectError")
 
-    monkeypatch.setattr(llm, "chat", _boom)
+    monkeypatch.setattr(llm, "chat_with_usage", _boom)
     with pytest.raises(llm.LLMError):
         llm_ledger.chat_logged(
             [{"role": "user", "content": "灰区复核"}], surface="guard-grey", conn=conn,

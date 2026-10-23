@@ -28,7 +28,7 @@ import unicodedata
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import config, llm, personal, reference_client
+from . import config, llm, llm_ledger, personal, reference_client
 from .auth import require_user
 from .llm import LLMError
 
@@ -154,7 +154,8 @@ def verify_coverage(topic: str, digest: str, key_points: list[str]) -> dict:
         failed = False
         for p in uncovered:
             try:
-                answer = llm.chat(_llm_messages(topic, p, digest),
+                answer = llm_ledger.chat_logged(_llm_messages(topic, p, digest),
+                                  surface="personal-verify",
                                   max_tokens=50, timeout=10.0)
             except LLMError:
                 failed = True

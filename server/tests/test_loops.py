@@ -207,7 +207,7 @@ def _env(tmp_path, monkeypatch):
 def _llm_on(monkeypatch, reply) -> None:
     """LLM 网关桩：is_configured=True + chat 返回固定文本（不真调网）。"""
     monkeypatch.setattr(llm_mod, "is_configured", lambda: True)
-    monkeypatch.setattr(llm_mod, "chat", lambda *a, **k: reply)
+    monkeypatch.setattr(llm_mod, "chat_with_usage", lambda *a, **k: {"content": reply, "usage": None})
 
 
 # ---------------------------------------------------------------------------

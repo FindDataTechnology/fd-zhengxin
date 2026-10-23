@@ -20,7 +20,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from . import llm
+from . import llm, llm_ledger
 from .guard import Action
 
 SYSTEM_PROMPT = (
@@ -50,11 +50,12 @@ def classify_grey(
         decision = GreyDecision(Action.GREY, "unavailable", "llm_unavailable")
     else:
         try:
-            raw = llm.chat(
+            raw = llm_ledger.chat_logged(
                 [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": _user_prompt(payload)},
                 ],
+                surface="guard-grey",
                 temperature=0.0,
                 max_tokens=16,
             )

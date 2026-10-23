@@ -386,8 +386,8 @@ def test_llm_enhancement_spans_verified(monkeypatch) -> None:
         {"stance_label": "谨慎观望", "span": [0, valid_end]},
         {"stance_label": "支持推进", "span": [0, len(BODY_LLM) + 50]},  # 越界
     ]
-    monkeypatch.setattr(llm, "chat",
-                        lambda messages, **kw: json.dumps(claims, ensure_ascii=False))
+    monkeypatch.setattr(llm, "chat_with_usage",
+                        lambda messages, **kw: {"content": json.dumps(claims, ensure_ascii=False), "usage": None})
 
     idx = _index_item("i5", "某地关于延迟退休实施节奏的意见", "按年度评估")
     full = _full("i5", "某地关于延迟退休实施节奏的意见", "按年度评估", BODY_LLM)
