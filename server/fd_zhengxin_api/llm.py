@@ -74,6 +74,8 @@ def chat_with_usage(
     台账（llm_ledger）用 usage 记实测 token（usage_method="usage"）；网关不回报
     时返回 usage=None，由台账退回估算口径。失败口径与 chat() 一致。
     """
+    import httpx  # 延迟导入：与 chat() 同习惯
+
     key = config.llm_api_key()
     if not key:
         return {"content": None, "usage": None}
