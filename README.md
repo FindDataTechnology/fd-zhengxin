@@ -34,7 +34,7 @@
 ```
   外部真源（许可门纪律见 fd-zhengxin-reference）
   ├─ V-Dem（CC BY-SA 4.0，已过门）
-  ├─ MARPOR（license_unconfirmed，关门不摄取）
+  ├─ MARPOR（license confirmed，2026-10-23 裁决先行开门；非再分发约束，不开放原始数据导出）
   ├─ Wikidata（CC0） / SEP（只链不抄）
   └─ 中国线 curated 层（先秦种子 + 近现代五思潮索引）
           │
@@ -79,11 +79,11 @@ server 端 env（最小集，全量清单见 `docs/ops.md`）：
 | `FDZX__AUTH_DEV_TOKENS` | 开发态固定令牌，如 `token1=user_a` | 未设且未配 JWKS → 个人层 API 一律 401 |
 | `FDZX__AUTH_JWKS` / `FDZX__AUTH_AUDIENCE` | JWT 校验（Logto 等，RS256/ES384） | 未设走开发态令牌 |
 | `FDZX__REFERENCE_BASE_URL` | 参照系 MCP 端点（如 `http://127.0.0.1:8000/mcp`） | 参照系相关功能降级并如实标注（not_configured） |
-| `FDZX__INFOSTREAM_BASE_URL` | fd-info MCP 端点 | 脉搏环冻结（not_configured，fd-info 未上产） |
+| `FDZX__INFOSTREAM_BASE_URL` | fd-info MCP 端点 | 未设 → 脉搏环冻结（not_configured）；已设 → 正常取数（fd-info 已上产，fd-prod 已接线，2026-11-06 实查 `http://fd-info.fd-prod.svc.cluster.local:8080/mcp` 可达） |
 | `FDZX__LLM_API_KEY` | LLM 网关 KEY（可选增强） | 全部走确定性路径（engine=deterministic），无成本 |
 
 ```bash
-# server（含三闭环/脉搏/个人层，91 个测试全离线）
+# server（含三闭环/脉搏/个人层，111 个测试全离线）
 cd server
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
