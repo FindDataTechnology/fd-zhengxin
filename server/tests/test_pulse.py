@@ -35,11 +35,16 @@ def _index_item(item_id: str, title: str, summary: str, withdrawn: bool = False)
 
 
 def _full(item_id: str, title: str, summary: str, body: str | None) -> dict:
+    """新契约形态：get_item 不内联正文；全文在 get_body 通道（按 doc_id 取）。"""
     d = _index_item(item_id, title, summary)
-    d["body"] = body
     d["body_status"] = "stored" if body else "missing"
+    if body:
+        BODIES[d["doc_id"]] = body
     return d
 
+
+# get_body 通道的正文表（doc_id → 全文）；每个测试由 fixture 清空。
+BODIES: dict[str, str] = {}
 
 ITEM_A_IDX = _index_item("i1", "关于延迟退休改革方案的意见", "明确支持渐进实施")
 ITEM_A = _full("i1", "关于延迟退休改革方案的意见", "明确支持渐进实施", BODY_A)
@@ -48,11 +53,13 @@ ITEM_B = _full("i2", "关于延迟退休年龄设置的建议", "建议审慎评
 
 
 class ScriptedTransport:
-    """回放传输：stream_health ok / list_since 逐页弹出 / get_item 查字典。"""
+    """回放传输：stream_health ok / list_since 逐页弹出 / get_item 查字典 /
+    get_body 按 doc_id 查正文表。"""
 
-    def __init__(self, pages: list[dict], items: dict[str, dict]):
+    def __init__(self, pages: list[dict], items: dict[str, dict], bodies: dict[str, str] | None = None):
         self.pages = list(pages)
         self.items = dict(items)
+        self.bodies = bodies if bodies is not None else BODIES
         self.calls: list[tuple[str, dict]] = []
         self.health: dict = {"sources": [{"source": "cn-gov", "status": "ok",
                                           "consecutive_failures": 0}]}
@@ -70,6 +77,12 @@ class ScriptedTransport:
             return item if item is not None else {
                 "error": f"'条目不存在：{arguments['item_id']}'",
             }
+        if tool == "get_body":
+            doc_id = arguments["doc_id"]
+            body = self.bodies.get(doc_id)
+            if body is None:
+                return {"ok": False, "error": f"正文不存在：{doc_id}", "doc_id": doc_id}
+            return {"ok": True, "doc_id": doc_id, "body": body, "length": len(body)}
         if tool == "search_info":
             return {"items": [], "count": 0, "mode": "index"}
         raise AssertionError(f"只读客户端出现非预期工具调用：{tool}")
@@ -148,7 +161,7 @@ def test_client_short_backoff_twice_then_unreachable() -> None:
 
 
 def test_client_three_interfaces_passthrough() -> None:
-    """三接口封装：list_since 游标 / get_item 详情与不存在 / search_info mode。"""
+    """四接口封装：list_since 游标 / get_item 详情（不内联正文）/ get_body 全文 / search_info mode。"""
     pages = [{"items": [dict(ITEM_A_IDX)], "next_cursor": "cur-1", "has_more": True}]
     client = make_client(pages, {"i1": dict(ITEM_A)})
     page = client.list_since(source_types=["ministry"])
@@ -156,10 +169,14 @@ def test_client_three_interfaces_passthrough() -> None:
     assert client._transport.calls[-1][1] == {"source_types": ["ministry"]}  # noqa: SLF001
 
     item = client.get_item("i1")
-    assert item["item_id"] == "i1" and item["body"] == BODY_A
+    assert item["item_id"] == "i1" and "body" not in item  # 新契约：详情不内联正文
+    got = client.get_body(item["doc_id"])
+    assert got["ok"] is True and got["body"] == BODY_A
 
     missing = client.get_item("nope")          # 不存在：payload 带 error，不是异常
     assert "error" in missing
+    no_body = client.get_body("cn-gov:nope")   # 正文缺失：ok=false 结构化返回
+    assert no_body["ok"] is False and "error" in no_body
 
     res = client.search_info("延迟退休")
     assert res["mode"] == "index"               # mode 必带（text-core 空结果缺口防线）

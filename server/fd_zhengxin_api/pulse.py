@@ -341,8 +341,16 @@ def ingest_spectrum_update(
                     if not isinstance(full, dict) or full.get("error"):
                         report.items_skipped += 1
                         continue
+                    doc_id = full.get("doc_id")
+                    # get_item 不内联正文（fd-info 2026-10-23 收口契约）：正文走
+                    # get_body 读取面；body_status 非 stored 的条目如实记跳过。
+                    body: str | None = None
+                    if doc_id and full.get("body_status") == "stored":
+                        body_payload = client.get_body(str(doc_id))
+                        if isinstance(body_payload, dict) and body_payload.get("ok"):
+                            body = body_payload.get("body")
                     label_evs, dropped = _extract_item_stances(
-                        issue, item_id, full, full.get("body"), use_llm=use_llm,
+                        issue, item_id, full, body, use_llm=use_llm,
                     )
                     report.dropped_no_evidence += dropped
                     dropped_total += dropped

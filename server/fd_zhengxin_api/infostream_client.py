@@ -70,12 +70,13 @@ TIMEOUTS: dict[str, float] = {
     "list_since": 5.0,
     "get_item": 5.0,
     "search_info": 10.0,
+    "get_body": 5.0,
 }
 CONNECT_TIMEOUT = 3.0
 RETRIES = 2                     # 短退避 ×2（初始 1 次 + 重试 2 次 = 3 次尝试）
 RETRY_BACKOFF_BASE = 0.25       # 退避 0.25s → 1.0s（指数 ×4），测试可归零
 
-READ_METHODS = ("list_since", "get_item", "search_info", "stream_health")
+READ_METHODS = ("list_since", "get_item", "search_info", "stream_health", "get_body")
 
 
 def _classify(exc: Exception) -> FrozenReason:
@@ -179,9 +180,14 @@ class InfoStreamClient:
         return self._call("list_since", args, TIMEOUTS["list_since"])
 
     def get_item(self, item_id: str) -> dict:
-        """条目详情（含 doc_id / body_status / body）。不存在 → payload 带
+        """条目详情（含 doc_id / body_status；不内联正文）。不存在 → payload 带
         "error" 键原样返回（不是异常，不要重试）。"""
         return self._call("get_item", {"item_id": item_id}, TIMEOUTS["get_item"])
+
+    def get_body(self, doc_id: str) -> dict:
+        """条目全文（get_item 不内联正文后的补位读取面）。缺失/failed →
+        payload 带 "ok": false 与 "error" 键原样返回（不是异常，不要重试）。"""
+        return self._call("get_body", {"doc_id": doc_id}, TIMEOUTS["get_body"])
 
     def search_info(
         self, query: str, *, source_types: list[str] | None = None, limit: int | None = None,
