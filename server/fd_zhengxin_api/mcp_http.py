@@ -93,6 +93,12 @@ class MCPSessionTransport:
 
     签名 (tool, arguments, timeout) -> payload dict；httpx 网络异常原样抛出
     （调用方归一为 unreachable/upstream），协议层异常抛 ValueError。
+
+    `token`（change converge-line-identity-and-keys 8.6）：上游开了线自有共享
+    bearer 门之后，三个请求（initialize / notifications/initialized / tools/call）
+    都要带同一把令牌——后两个用拼装的会话头，最容易漏，故统一由 `_headers()`
+    生成。**空串 = 不发该头**，与接入前逐字节一致（门没开时发不发都无所谓，
+    门开了就必须发）。
     """
 
     def __init__(
@@ -100,10 +106,21 @@ class MCPSessionTransport:
         endpoint_url: str,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         client_name: str = "fd-zhengxin-mcp-client",
+        token: str = "",
     ):
         self._endpoint = resolve_endpoint(endpoint_url)
         self._connect_timeout = connect_timeout
         self._client_name = client_name
+        self._token = (token or "").strip()
+
+    def _headers(self, session: str | None = None) -> dict:
+        """请求头：基础头 +（配了才发的）共享 bearer +（有会话才发的）会话头。"""
+        headers = dict(MCP_HEADERS)
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        if session:
+            headers["Mcp-Session-Id"] = session
+        return headers
 
     def __call__(self, tool: str, arguments: dict, timeout: float) -> dict:
         import httpx
@@ -115,13 +132,12 @@ class MCPSessionTransport:
                 # notifications/initialized：服务端 202/204 皆可，不校验
                 http.post(
                     self._endpoint,
-                    headers={**MCP_HEADERS, "Mcp-Session-Id": session},
+                    headers=self._headers(session),
                     json={"jsonrpc": "2.0", "method": "notifications/initialized"},
                 )
-            headers = {**MCP_HEADERS, **({"Mcp-Session-Id": session} if session else {})}
             resp = http.post(
                 self._endpoint,
-                headers=headers,
+                headers=self._headers(session),
                 json={
                     "jsonrpc": "2.0",
                     "id": 2,
@@ -140,7 +156,7 @@ class MCPSessionTransport:
     def _initialize(self, http) -> str | None:
         resp = http.post(
             self._endpoint,
-            headers=MCP_HEADERS,
+            headers=self._headers(),
             json={
                 "jsonrpc": "2.0",
                 "id": 1,

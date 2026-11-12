@@ -98,14 +98,23 @@ class MCPHTTPTransport(MCPSessionTransport):
 
     会话握手/双响应体解析/envelope 解包全部继承 mcp_http.MCPSessionTransport
     （D1：勿在各客户端重抄会话头）。
+
+    token（8.6）：fd-info 开共享门之后必须带同一把令牌；`None`=按配置即时读
+    （`FDZX__INFOSTREAM_TOKEN`），空串=不发该头（与接入前逐字节一致）。
     """
 
-    def __init__(self, base_url: str, connect_timeout: float = CONNECT_TIMEOUT):
+    def __init__(
+        self,
+        base_url: str,
+        connect_timeout: float = CONNECT_TIMEOUT,
+        token: str | None = None,
+    ):
         base = base_url.rstrip("/")
         endpoint = base if base.endswith("/mcp") else base + "/mcp"
         super().__init__(
             endpoint, connect_timeout=connect_timeout,
             client_name="fd-zhengxin-infostream-client",
+            token=config.infostream_token() if token is None else token,
         )
 
 

@@ -89,6 +89,23 @@ def infostream_base_url() -> str:
     return env("INFOSTREAM_BASE_URL")
 
 
+# ---- 上游共享 bearer（change converge-line-identity-and-keys 8.6） ----
+#
+# 参照系与 fd-info 都将开"线自有共享 bearer 门"（摘掉平台后本线仍能被合法消费）。
+# 两个上游各一把令牌；**未配置 = 不发 Authorization**，与接入前逐字节一致——
+# 只有上游的门开了才必须配。顺序：先配这里（消费者），再开上游的门。
+
+
+def reference_token() -> str:
+    """参照系服务的共享 bearer；未配置返回空串（传输层据此决定是否发该头）。"""
+    return env("REFERENCE_TOKEN").strip()
+
+
+def infostream_token() -> str:
+    """fd-info 的共享 bearer；未配置返回空串（同上，默认关闭）。"""
+    return env("INFOSTREAM_TOKEN").strip()
+
+
 # ---- 脉搏环 / LLM 台账（产品运营层自有库，不混入个人层库） ----
 
 

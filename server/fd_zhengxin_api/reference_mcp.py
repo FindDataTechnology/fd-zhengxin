@@ -138,6 +138,8 @@ class ReferenceClient:
             self.base_url,
             connect_timeout=CONNECT_TIMEOUT,
             client_name="fd-zhengxin-reference-mcp",
+            # 8.6：参照系开共享门之后必须带同一把令牌；未配=不发该头（逐字节同前）
+            token=config.reference_token(),
         )
         self.timeout = timeout
         self.status_timeout = status_timeout
