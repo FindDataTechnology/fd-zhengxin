@@ -1,6 +1,8 @@
 # fd-zhengxin
 
-政心（zhengxin）独立产品线单仓：web 三入口（`/` 官网 landing、`/workbench` 工作台、`/admin` 管理后台）+ FastAPI 服务端（三闭环 + 脉搏环 + 个人层自有存储）。lex 线四模块的第四位：识（律法）、实论（实证）、哲思（哲学）、政心（政治）。
+政心（zhengxin）识律家族成员的单仓：web 三入口（`/` 官网 landing、`/workbench` 工作台、`/admin` 管理后台）+ FastAPI 服务端（三闭环 + 脉搏环 + 个人层自有存储）。
+
+识律家族共五位成员：良律（法律）、哲思（哲学）、实论（严肃写作与实证）、剧创（剧本）、政心（政治思想）。成员清单、成熟度与「今天能买什么」的唯一准星是 `fd-lex/docs/product-lineup.json`——本仓不自行声明成熟度。政心当前为 **incubation（孵化中）**：有站点、无商业面。
 
 技术栈照 fd 舰队配方、形制照姊妹仓 fd-zhesi：React 19 + Vite + TS + Tailwind v4 + i18next 双语；服务端 Python FastAPI；部署 cheap fd-prod + TCR + ArgoCD（见 `deploy/`）。参照系独立部署在姊妹仓 fd-zhengxin-reference，分仓先例照 fd-zhesi / fd-zhesi-reference。
 
