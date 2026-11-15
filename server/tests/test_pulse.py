@@ -483,3 +483,72 @@ def test_pulse_api_auth_404_and_200() -> None:
     for entry in body["spectrum"]:
         for ev in entry["evidence"]:
             assert len(ev["span"]) == 2 and ev["quote"]   # 证据随查询可回溯
+
+
+# ---- 不可见文本遮罩（2026-11-16 生产缺陷回归） ----
+#
+# 生产实测：fd-info 的正文是原始 HTML，`<script>` 里的
+# `/*封装的函数解决低版本IE不支持getElementsByClassName*/` 被当成「支持推进」
+# 写进光谱——39 条证据逐字校验全过，内容全是代码。这些用例钉住「只从可见
+# 文字取证据」，同时钉住「遮罩不改变偏移、quote 仍逐字对回原文」。
+
+BODY_HTML = (
+    "<html><head><title>关于延迟退休</title>"
+    "<script>/*封装的函数解决低版本IE不支持getElementsByClassName*/</script>"
+    "<style>.x{推进:1}.y{担忧:2}</style></head>"
+    "<body><!-- 评论区：反对意见不构成正文 -->"
+    "<p>关于延迟退休，文件明确表示支持渐进式实施。</p>"
+    "<div>会议同时提醒稳妥过渡。</div>"
+    "</body></html>"
+)
+
+
+def test_mask_invisible_keeps_offsets() -> None:
+    """遮罩只换字符不删字符：长度与换行不变，可见文字原样保留。"""
+    masked = pulse._mask_invisible(BODY_HTML)
+    assert len(masked) == len(BODY_HTML)
+    assert masked.count("\n") == BODY_HTML.count("\n")
+    assert "文件明确表示支持渐进式实施" in masked
+    for hidden in ("getElementsByClassName", "推进:1", "反对意见不构成正文"):
+        assert hidden not in masked
+
+
+def test_detect_stances_ignores_script_style_and_comments() -> None:
+    """脚本/样式/注释里的立场词不算命中；命中项仍是原文逐字切片。"""
+    found = pulse._detect_stances(BODY_HTML)
+    quotes = [BODY_HTML[s:e] for spans in found.values() for s, e in spans]
+    assert quotes, "可见正文里的「支持」应命中"
+    for q in quotes:
+        assert "getElementsByClassName" not in q
+        assert "推进:1" not in q
+        assert "反对意见不构成正文" not in q
+    assert any("支持渐进式实施" in q for q in quotes)
+    for spans in found.values():
+        for s, e in spans:
+            ev = {"span": [s, e], "quote": BODY_HTML[s:e]}
+            assert pulse.verify_evidence(ev, BODY_HTML)
+
+
+def test_script_only_body_yields_no_evidence() -> None:
+    """整篇只有脚本时零命中：不能凭 JS 造出立场。"""
+    assert pulse._detect_stances("<script>var s='不支持';</script>") == {}
+
+
+def test_ingest_html_body_evidence_is_visible_text() -> None:
+    """端到端：HTML 正文入库后，光谱证据只引可见文字且逐字可回溯。"""
+    idx = _index_item("i9", "关于延迟退休的实施意见", "表示支持渐进实施")
+    full = _full("i9", "关于延迟退休的实施意见", "表示支持渐进实施", BODY_HTML)
+    client = make_client(
+        [{"items": [dict(idx)], "next_cursor": None, "has_more": False}],
+        {"i9": dict(full)},
+    )
+    report = pulse.ingest_spectrum_update(ISSUE, client=client)
+    assert report["frozen"] is False
+    snap = pulse.get_spectrum(ISSUE)
+    assert snap is not None and snap["spectrum"], "可见正文有立场词却零证据"
+    for entry in snap["spectrum"]:
+        for ev in entry["evidence"]:
+            s, e = ev["span"]
+            assert BODY_HTML[s:e] == ev["quote"]
+            assert "getElementsByClassName" not in ev["quote"]
+            assert ev["item_id"] == "i9"

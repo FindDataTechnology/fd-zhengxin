@@ -140,24 +140,86 @@ def _is_related(item: dict, terms: list[str]) -> bool:
     return any(t and t in haystack for t in terms)
 
 
-def _sentence_span(body: str, start: int, end: int) -> tuple[int, int]:
-    """把命中区间扩展为所在句子区间（句末断点字符计入 quote）。"""
-    s = max(body.rfind(b, 0, start) for b in _SENTENCE_BREAK)
-    sent_start = 0 if s == -1 else s + 1
-    nxt = [i for i in (body.find(b, end) for b in _SENTENCE_BREAK) if i != -1]
-    e = min(nxt) if nxt else len(body)
-    sent_end = len(body) if e == -1 else e + 1
-    return max(sent_start, 0), min(sent_end, len(body))
+def _sentence_span(
+    body: str, start: int, end: int, lower: int = 0, upper: int | None = None,
+) -> tuple[int, int]:
+    """把命中区间扩展为所在句子区间（句末断点字符计入 quote）。
+
+    `lower`/`upper` 把扩展夹在给定区间内——有不可见文本时，句子不能跨过
+    它（否则 quote 会把整段 `<script>` 裹进来）。
+    """
+    upper = len(body) if upper is None else upper
+    s = max(body.rfind(b, lower, start) for b in _SENTENCE_BREAK)
+    sent_start = lower if s == -1 else s + 1
+    nxt = [i for i in (body.find(b, end, upper) for b in _SENTENCE_BREAK) if i != -1]
+    e = min(nxt) if nxt else upper
+    sent_end = upper if e == -1 else e + 1
+    return max(sent_start, lower), min(sent_end, upper)
+
+
+# 不可见文本遮罩：立场关键词只该命中正文的可见文字。正文是原始 HTML
+# （含 <script>/<style>/注释/标签），而「支持」「推进」这类词在 JS 里遍地都是
+# ——2026-11-16 生产实测：光谱里 39 条证据全是
+# `/*封装的函数解决低版本IE不支持getElementsByClassName*/` 那类代码片段，
+# 逐字校验全过（span 与 quote 都自洽），内容却毫无立场可言。
+# 按位替换成空格（长度与换行都不变），所以 span 仍旧是原文偏移，
+# `_evidence_from_spans` 的 `body[start:end] == quote` 铁律不受影响。
+_MASK_PATTERNS = (
+    re.compile(r"<script\b[^>]*>.*?</script\s*>", re.S | re.I),
+    re.compile(r"<style\b[^>]*>.*?</style\s*>", re.S | re.I),
+    re.compile(r"<!--.*?-->", re.S),
+    re.compile(r"<[^<>]{0,2048}>", re.S),
+)
+
+
+def _mask_with_flags(body: str) -> tuple[str, bytearray]:
+    """返回 (遮罩后的文本, 逐字符不可见标记)。长度不变，偏移可直接对回原文。"""
+    chars = list(body)
+    flags = bytearray(len(body))
+
+    def blank(match: re.Match) -> None:
+        for i in range(match.start(), match.end()):
+            flags[i] = 1
+            if chars[i] != "\n":
+                chars[i] = " "
+
+    for pattern in _MASK_PATTERNS:
+        for match in pattern.finditer(body):
+            blank(match)
+    return "".join(chars), flags
+
+
+def _mask_invisible(body: str) -> str:
+    """把注释/脚本/样式/标签遮成空格；长度不变，偏移可直接对回原文。"""
+    return _mask_with_flags(body)[0]
+
+
+def _visible_run(flags: bytearray, start: int, end: int) -> tuple[int, int]:
+    """包含 [start,end) 的最大连续可见区间（不被任何不可见片段打断）。"""
+    lo, hi = start, end
+    while lo > 0 and not flags[lo - 1]:
+        lo -= 1
+    while hi < len(flags) and not flags[hi]:
+        hi += 1
+    return lo, hi
 
 
 def _detect_stances(body: str) -> dict[str, list[tuple[int, int]]]:
-    """确定性立场检测：body 内每个立场关键词命中 → 所在句子 span。"""
+    """确定性立场检测：可见正文内每个立场关键词命中 → 所在句子 span。
+
+    匹配跑在 `_mask_with_flags(body)` 上（脚本/样式/注释/标签被遮住），且
+    句子区间不跨不可见片段——否则 `<script>` 里的「支持」虽不命中，可见
+    句子的 quote 仍会把整段脚本裹进来。span 仍是原文偏移，quote 仍逐字
+    等于 `body[s:e]`。
+    """
+    visible, flags = _mask_with_flags(body)
     found: dict[str, list[tuple[int, int]]] = {}
     for label, keywords in STANCE_LEXICON.items():
         spans: set[tuple[int, int]] = set()
         for kw in keywords:
-            for m in re.finditer(re.escape(kw), body):
-                spans.add(_sentence_span(body, m.start(), m.end()))
+            for m in re.finditer(re.escape(kw), visible):
+                lo, hi = _visible_run(flags, m.start(), m.end())
+                spans.add(_sentence_span(visible, m.start(), m.end(), lo, hi))
         if spans:
             found[label] = sorted(spans)
     return found
@@ -437,8 +499,9 @@ def _extract_item_stances(
             evs = _evidence_from_spans(item_id, doc_id, body, spans)
             asserted.setdefault(label, []).extend(evs)
         if use_llm:
+            # 同样只看可见文字：否则 LLM 会把脚本片段当正文引出来
             for claim in _llm_stance_claims(
-                issue, str(full.get("title") or ""), body,
+                issue, str(full.get("title") or ""), _mask_invisible(body),
             ):
                 label = claim.get("stance_label")
                 if label not in STANCE_LEXICON or label in asserted:
