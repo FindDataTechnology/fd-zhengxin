@@ -5,6 +5,7 @@ import { getToken, setToken } from "./api/client";
 import Landing from "./pages/Landing";
 import Workbench from "./pages/Workbench";
 import Admin from "./pages/Admin";
+import { SiteCopilot } from "./components/SiteCopilot";
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="/workbench" element={<Workbench />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
-    </div>
+          <SiteCopilot line="zhengxin" lineName="政心" navTargets={["/workbench", "/docs"] as const} />
+</div>
   );
 }
