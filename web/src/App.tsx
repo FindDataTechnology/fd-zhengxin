@@ -6,6 +6,7 @@ import Landing from "./pages/Landing";
 import Workbench from "./pages/Workbench";
 import Admin from "./pages/Admin";
 import { SiteCopilot } from "./components/SiteCopilot";
+import { SiteFooter } from "./components/SiteFooter";
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/workbench" element={<Workbench />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
+      <SiteFooter brand="政心 Zhengxin" tagline="寻数·识律家族 —— 政情数据底座与读面" links={[{ href: "https://www.finddatatech.cloud/", label: "寻数官网" }]} />
           <SiteCopilot line="zhengxin" lineName="政心" navTargets={["/workbench", "/docs"] as const} />
 </div>
   );
