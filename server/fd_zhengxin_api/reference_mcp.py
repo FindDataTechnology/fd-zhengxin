@@ -91,14 +91,24 @@ Transport = Callable[[str, dict, float], dict]
 
 
 def _from_payload(tool: str, payload: Any) -> RefResult:
-    """工具 payload → RefResult：非空 results 透传；空结果带 taxonomy reason
-    也归一为降级；两者之外的口径视为上游异常（防参照系契约漂移）。"""
+    """工具 payload → RefResult。
+
+    三种形态：
+    1. `results` 非空列表 → 成功（四工具与台账的形态）；
+    2. **有 `results` 键但为空**，或带 taxonomy reason → 降级（空结果必带原因）；
+    3. **没有 `results` 键的对象形态**（`entity_dossier` 是 identity/relations/
+       coverage 而非 results 数组）→ 只要不是错误对象就算成功，原样透传。
+       少了这条分支，`entity_dossier` 的成功响应会被判成「空结果未带 reason」
+       的上游异常——实测撞过（test_reference_contract 的 entity_dossier 用例）。
+    """
     if not isinstance(payload, dict):
         return RefResult(False, UPSTREAM, f"{tool}: 工具输出不是对象")
+    reason = payload.get("reason")
     results = payload.get("results")
     if isinstance(results, list) and results:
         return RefResult(True, data=payload)
-    reason = payload.get("reason")
+    if "results" not in payload and reason is None and "error" not in payload:
+        return RefResult(True, data=payload)   # 对象形态成功响应
     if isinstance(reason, str) and reason in TAXONOMY:
         return RefResult(False, reason, str(payload.get("hint") or reason))
     return RefResult(
@@ -189,6 +199,15 @@ class ReferenceClient:
         if polarity is not None:
             args["polarity"] = polarity
         return self._call("relation_query", args)
+
+    def entity_dossier(self, ref: str) -> RefResult:
+        """单实体读面：人物/政党/事件/运动/学派 → 身份 + 学派 + 出入关系边全集。
+
+        与 `relation_query` 的区别：那是两两配对查询，本工具答「这个实体的全部
+        关系」。响应第一层带 `coverage` 三态（available / not_in_snapshot /
+        not_ingested）——调用方必须读它，空关系边不等于实体不存在。
+        """
+        return self._call("entity_dossier", {"ref": ref})
 
     def regime_timeseries(
         self, country: str, years: list[int] | None = None, indicator: str | None = None,

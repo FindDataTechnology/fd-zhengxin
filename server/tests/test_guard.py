@@ -75,13 +75,18 @@ def test_check_picks_stricter_action(monkeypatch) -> None:
     assert v3.action is None and v3.reasons == []
 
 
-# ---- 规则库 v1 ----
+# ---- 规则库版本 ----
 
 
-def test_ruleset_v1_catalog() -> None:
-    """v1 规则目录：rule_id 唯一、五类口径全覆盖、severity 只有 block/grey。"""
-    rs = guard_rules.v1()
-    assert guard_rules.RULESET_VERSION == "v1"
+def test_ruleset_current_catalog() -> None:
+    """当前规则目录：rule_id 唯一、五类口径全覆盖、severity 只有 block/grey。
+
+    `guard_rules.v1()` 是冻结的历史版本（8 条，逐字不改——口径审计要可回放）；
+    `guard_rules.v2()` 是当前默认（v1 + 影响面环的 3 条 = 11 条）。测试断言
+    版本号与**默认**规则集一致，而不是与 v1 一致。
+    """
+    rs = guard_rules.v2()
+    assert guard_rules.RULESET_VERSION == "v2"
     ids = [r.rule_id for r in rs]
     assert len(ids) == len(set(ids))
     assert {r.category for r in rs} == set(guard_rules.CATEGORIES)
@@ -89,6 +94,17 @@ def test_ruleset_v1_catalog() -> None:
         assert r.category in guard_rules.CATEGORIES
         assert r.action in (Action.BLOCK, Action.GREY)
         assert r.description
+
+
+def test_v1_is_frozen_prefix_of_v2() -> None:
+    """规则只增不改：v1 的 8 条必须逐字存在于 v2 里（同 rule_id 同行为）。"""
+    v1 = {r.rule_id: r for r in guard_rules.v1()}
+    v2 = {r.rule_id: r for r in guard_rules.v2()}
+    assert len(v1) == 8
+    assert set(v1) <= set(v2)
+    for rid, rule in v1.items():
+        assert (rule.category, rule.action, rule.description) == \
+               (v2[rid].category, v2[rid].action, v2[rid].description)
 
 
 # ---- 正反样本集（全量跑） ----
@@ -303,4 +319,58 @@ def test_overlay_path_from_config(tmp_path, monkeypatch) -> None:
 
     monkeypatch.delenv("FDZX__GUARD_OVERLAY", raising=False)
     assert config.guard_overlay_path() == ""
-    assert guard_overlay.load_ruleset() == guard_rules.v1()  # 未设：基线原样
+    assert guard_overlay.load_ruleset() == guard_rules.v2()  # 未设：基线原样
+
+
+# ---- 影响面：平衡规则的适用边界（change zhengxin-entity-and-impact-loops） ----
+
+
+def test_impact_payload_exempt_from_balance_rule() -> None:
+    """影响面产出不受 R-BAL-001 约束——一份部委文件只点名一类主体是文件的事实。
+
+    这条断言守的是一个**决定**，不是漏洞：见 guard_rules._check_unbalanced 的
+    impact 分支注释。影响面的保护在 R-BARE-002 / R-PREDICT-003 / R-RECO-003。
+    """
+    verdict = guard_output({
+        "payload_kind": "impact",
+        "topic": "claim:i1",
+        "is_contemporary": True,
+        "claims": [],
+        "elements": [{"target": "各级政府机关", "direction": "收紧"}],
+        "views": [],
+        "body": "该通知适用于各级国家机关。",
+    })
+    assert not any(r.rule_id == "R-BAL-001" for r in verdict.reasons)
+
+
+def test_school_loop_still_balanced_checked() -> None:
+    """非影响面的当代议题照旧受 R-BAL-001 约束（分叉没有把老路径放开）。"""
+    verdict = guard_output({
+        "topic": "某议题", "is_contemporary": True,
+        "claims": [], "views": [{"school": "儒家", "stance": "德治"}],
+        "body": "单方视角。",
+    })
+    assert verdict.action is Action.BLOCK
+    assert any(r.rule_id == "R-BAL-001" for r in verdict.reasons)
+
+
+def test_v2_impact_rules_catch_slides() -> None:
+    """v2 三条新规则各自的拦截点（作用面 → 后果断言 / 个人利害 / 缺证据）。"""
+    from fd_zhengxin_api import guard_rules as G
+
+    rules = {r.rule_id: r for r in G.v2()}
+    # R-PREDICT-003：滑向后果
+    hit = rules["R-PREDICT-003"].apply({"body": "该规定将导致成本上升，企业承压。"})
+    assert hit is not None and rules["R-PREDICT-003"].action is Action.BLOCK
+    # R-RECO-003：个人利害
+    hit = rules["R-RECO-003"].apply({"body": "这份文件对你有利，你应当据此调整。"})
+    assert hit is not None and rules["R-RECO-003"].action is Action.BLOCK
+    # R-BARE-002：影响面 claims 缺 evidence
+    hit = rules["R-BARE-002"].apply({
+        "payload_kind": "impact",
+        "claims": [{"text": "某强断言", "evidence": {"quote": ""}}],
+    })
+    assert hit is not None
+    # 合规的作用面转述不误伤
+    assert rules["R-PREDICT-003"].apply(
+        {"body": "本文件规定，自2022年3月1日起施行。"}) is None

@@ -27,7 +27,7 @@ from typing import Callable
 
 from .guard import Action, Reason
 
-RULESET_VERSION = "v1"
+RULESET_VERSION = "v2"
 
 CATEGORIES = frozenset(
     {"prediction", "recommendation", "advocacy", "bare-assertion", "unbalanced"}
@@ -95,29 +95,56 @@ def _source_ok(claim: dict) -> bool:
 
 
 def _check_bare_assertion(payload: dict) -> str | None:
-    """裸断言：claims 中强断言缺 source（无 / 空串 / 纯空白）即拦。"""
+    """裸断言：claims 中强断言缺 source（无 / 空串 / 纯空白）即拦。
+
+    影响面产出的 claims 用的是 `evidence` 键（可复原的逐字证据）而非 `source`，
+    所以按 payload_kind 决定读哪个键——两种有一点相同：**没有引用就不许写强断言**。
+    """
     claims = payload.get("claims") or []
+    key = "evidence" if payload.get("payload_kind") == "impact" else "source"
+
+    def _ok(claim: dict) -> bool:
+        val = claim.get(key)
+        if isinstance(val, str):
+            return bool(val.strip())
+        # impact 的 evidence 是结构化块 {item_id, doc_id, span, quote}
+        return isinstance(val, dict) and bool((val.get("quote") or "").strip())
+
     missing = [
         str(c.get("text", "")).strip()
         for c in claims
-        if isinstance(c, dict) and not _source_ok(c)
+        if isinstance(c, dict) and not _ok(c)
     ]
     if not missing:
         return None
     shown = "、".join(f"『{t[:24]}』" for t in missing[:3])
     more = f" 等 {len(missing)} 条" if len(missing) > 3 else ""
-    return f"claims 中 {len(missing)} 条强断言缺 source 引用：{shown}{more}"
+    return f"claims 中 {len(missing)} 条强断言缺 {key} 引用：{shown}{more}"
 
 
 def _check_unbalanced(payload: dict) -> str | None:
     """平衡类：当代议题（is_contemporary）必须覆盖 ≥2 个对立学派视角。
 
-    v1 判定口径：views 去重后学派（school）≥2 且立场（stance）≥2——
-    同一学派复述两遍、或两个学派念同一套立场，都不算「对立」。
+    v1 判定口径（学派闭环产出）：views 去重后学派（school）≥2 且立场（stance）≥2
+    ——同一学派复述两遍、或两个学派念同一套立场，都不算「对立」。
+
+    **影响面产出（payload_kind="impact"）完全不适用本规则**——理由见下方分支
+    注释。这条不适用声明是 change zhengxin-entity-and-impact-loops 的显式决定，
+    有测试守着（test_guard.py 的 impact 用例）。
+
     非当代议题不启用本规则。
     """
     if not payload.get("is_contemporary"):
         return None
+
+    if payload.get("payload_kind") == "impact":
+        # 影响面**不适用**本规则。原因：R-BAL-001 管的是「呈现观点谱系时不许只给
+        # 单方立场」——那是编辑选择。影响面转述的是一份文件的正文，一份部委通知
+        # 只点名一类主体是**文件的事实**，不是我们的剪辑；用平衡规则拦它等于惩罚
+        # 诚实。影响面的保护在别处：每条要素必须有逐字证据（R-BARE-002）、不得
+        # 滑向后果断言（R-PREDICT-003）、不得裁定个人利害（R-RECO-003）。
+        return None
+
     views = payload.get("views") or []
     schools, stances = set(), set()
     for v in views:
@@ -184,6 +211,63 @@ _ADVO_GREY = (
     r"join\s+the\s+(movement|cause)",
     r"stand\s+with\s+(them|us|the\s+people)",
 )
+
+# ---- v2 新增（影响面环）：从「文本写了什么」滑向「所以会怎样」 ----
+
+# 预测类：影响面最危险的滑坡——作用面描述本身合规，一句「这将导致」就把它
+# 变成了后果断言。模式只认因果+变化的组合，不误伤「本文件规定……将……」
+_PREDICTION_IMPACT = (
+    r"(将|会|必将)(直接|必然|因此|从而)?(导致|造成|引发|带来)[^。；？！\n]{0,20}"
+    r"(上升|下降|收紧|放松|扩大|萎缩|增加|减少|下滑|增长)",
+    r"(意味着|预示着)[^。；？！\n]{0,15}(上升|下降|收紧|放松|扩大|萎缩|增加|减少)",
+    r"this\s+will\s+(cause|lead\s+to|result\s+in)",
+    r"means\s+that[^.\n]{0,30}\s+will\s+(rise|fall|increase|decrease)",
+)
+
+# 推荐/评价类：把作用面直接说成对「你」的利害，或据此建议行动
+_RECO_IMPACT = (
+    r"对你(们)?(是|将)?(有利|不利|有益|有害|利好|利空)",
+    r"(你|您)(应该|应当|最好|建议)(据此)?(调整|规避|关注|支持|反对|行动)",
+    r"(建议|可以)(据此|因此)(调整|规避|配置|行动)",
+    r"(你|您)(将|会)(受益|受损)",
+    r"(is|will\s+be)\s+(good|bad)\s+for\s+you",
+    r"you\s+should\s+(adjust|avoid|watch|support|oppose)",
+)
+
+
+def v2() -> list:
+    """规则库 v2：v1 的 8 条 + 影响面环的 3 条（共 11 条，仍覆盖五类口径）。
+
+    v2 的三条全部落进既有类别，不新增第六类——`CATEGORIES` 是五类闭集且被
+    测试断言等值，新增类别等于把口径纪律往下调；这三条本质就是 prediction /
+    recommendation / bare-assertion，归入既有类语义上站得住。
+
+    规则只增不改：v1 的 8 条逐字保留（同 rule_id 的行为变更必须升版本并在
+    变更说明中留痕——口径审计要可回放）。
+    """
+    return v1() + [
+        RegexRule(
+            "R-PREDICT-003", "prediction", Action.BLOCK,
+            "影响面：从作用面滑向后果断言（这将导致/会造成/意味着…上升下降收紧）",
+            _PREDICTION_IMPACT,
+        ),
+        RegexRule(
+            "R-RECO-003", "recommendation", Action.BLOCK,
+            "影响面：把作用面直接说成个人利害或据此建议行动（对你有利/你应当调整）",
+            _RECO_IMPACT,
+        ),
+        StructuredRule(
+            "R-BARE-002", "bare-assertion", Action.BLOCK,
+            "影响面：claims 强断言缺逐字证据（evidence）",
+            _check_bare_assertion,
+        ),
+    ]
+
+
+# 默认规则库（guard.guard_output 不传 ruleset 时用它）
+def v1_or_latest() -> list:
+    """兼容别名：当前默认规则库 = v2。"""
+    return v2()
 
 
 def v1() -> list:

@@ -91,14 +91,14 @@ def guard_output(payload: dict, ruleset: list | None = None) -> Verdict:
     呈现但置灰降权）；无命中时 action=None（干净放行——放行不是动作）。
     多条命中取最严（block > grey）并聚合全部 Reason。
 
-    ruleset 缺省用规则库 v1（guard_rules.v1()，版本号随裁决带回）；传
+    ruleset 缺省用当前规则库（guard_rules.v2()，版本号随裁决带回）；传
     自定义规则集（如 guard_overlay.load_ruleset 的收紧组合）时版本号留空，
     由调用方自行标注。
     """
     from . import guard_rules  # 延迟导入：guard_rules 复用本模块的 Action/Reason
 
     if ruleset is None:
-        ruleset = guard_rules.v1()
+        ruleset = guard_rules.v2()
         version = guard_rules.RULESET_VERSION
     else:
         version = ""

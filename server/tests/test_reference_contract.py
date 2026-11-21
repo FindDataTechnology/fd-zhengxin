@@ -185,3 +185,52 @@ def test_contract_genealogy_single_figure_honest_gap() -> None:
     assert out["chain"] == []
     assert any(g["reason"] == "no_pair_to_query" and "孟轲（孟子）" in g["detail"]
                for g in out["gaps"])
+
+
+# ---------------------------------------------------------------- entity_dossier 契约
+
+
+def test_entity_dossier_client_parses_coverage() -> None:
+    """entity_dossier 客户端把 coverage / relations 原样透传（tasks 5.2）。
+
+    新工具的响应第一层带 coverage 三态——客户端必须能如实传出去，不能吞成
+    「空结果」。这是 change zhengxin-entity-and-impact-loops 的契约面。
+    """
+    payload = {
+        "identity": {"ref": "seed:china/thinker/kongzi", "label": "孔子",
+                     "kind": "thinker", "school": "儒家", "years": "前551–前479"},
+        "relations": {"out": [{"other": "孟轲（孟子）", "kind": "influence",
+                               "polarity": "positive", "ref": "china-seed:relation:a>b"}],
+                      "in": []},
+        "relation_count": 1,
+        "resolution": {"status": "found", "face": "china-seed"},
+        "coverage": {"status": "available", "detail": None},
+        "gaps": [],
+        "provenance": {"source": "china-seed", "stable_id": "seed:china/thinker/kongzi"},
+    }
+    c = ReferenceClient(
+        base_url=BASE_URL,
+        transport=lambda tool, args, timeout: (
+            payload if tool == "entity_dossier"
+            else {"results": [], "reason": "not_ingested", "hint": "x"}
+        ),
+    )
+    r = c.entity_dossier("孔子")
+    assert r.ok
+    assert r.data["coverage"]["status"] == "available"
+    assert r.data["identity"]["label"] == "孔子"
+    assert r.data["relations"]["out"][0]["other"] == "孟轲（孟子）"
+
+
+def test_entity_dossier_not_ingested_carries_reason() -> None:
+    """未摄取形态：客户端归一为 ok=False + reason（不静默为空）。"""
+    c = ReferenceClient(
+        base_url=BASE_URL,
+        transport=lambda tool, args, timeout: (
+            {"results": [], "reason": "not_ingested", "hint": "wikidata 面无快照",
+             "coverage": {"status": "not_ingested"}}
+            if tool == "entity_dossier" else {"results": [], "reason": "not_ingested"}
+        ),
+    )
+    r = c.entity_dossier("Q15031")
+    assert not r.ok and r.reason == "not_ingested"

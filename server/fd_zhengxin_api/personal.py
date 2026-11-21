@@ -73,6 +73,44 @@ MIGRATIONS = [
     """
     ALTER TABLE understanding_cards ADD COLUMN state TEXT NOT NULL DEFAULT 'restating';
     """,
+    # 0003：处境档案（change zhengxin-entity-and-impact-loops）。
+    # **只有经济属性四轴**，无党派/意识形态/政治态度——一旦允许那类字段，
+    # 政心就自己造了一个政治档案，正是它对理解卡禁掉的东西。
+    # 值不富化（不映射行业标准码表）：映射会暗示「系统知道你的行业在上下游
+    # 哪个位置」，而那正是处境交叠明确禁止的推断能力。
+    """
+    CREATE TABLE situation_declarations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('region','industry','occupation','asset_class')),
+        value TEXT NOT NULL,
+        declared_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT
+    );
+    CREATE INDEX idx_situation_user ON situation_declarations(user_id, kind);
+    """,
+    # 0004：决策留痕（change zhengxin-entity-and-impact-loops）。
+    # 追加式、永不就地改写：修订产生新记录 + revises 指针。记录的是
+    # 「我读完之后决定了什么、当时引用了什么」，**没有任何评分类列**——
+    # 评分/聚合会把它从「我的留痕」变成「系统在引导」。
+    # 幂等键含 note：同样的对象 + 同样的决定文本重复提交 → 返回既有记录；
+    # 改了文本就是新决定。
+    """
+    CREATE TABLE decision_notes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        at TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_ref TEXT NOT NULL,
+        target_label TEXT,
+        note TEXT NOT NULL,
+        refs TEXT,
+        revises TEXT,
+        UNIQUE (user_id, target_kind, target_ref, note)
+    );
+    CREATE INDEX idx_decision_user ON decision_notes(user_id, at);
+    """,
 ]
 
 # 理解进度状态机（task 5.2）：已理解只能经复述校验达阈值进入（API 层把关）
@@ -323,3 +361,142 @@ def audit(
         (new_id(), user_id, action, resource, outcome, detail, now()),
     )
     conn.commit()
+
+
+# ---- 处境档案（change zhengxin-entity-and-impact-loops 0003） ----
+
+# 四轴闭集：全部是经济属性，无党派/意识形态/政治态度
+SITUATION_KINDS = ("region", "industry", "occupation", "asset_class")
+SITUATION_TTL_DAYS = 180  # 过期视为未声明，不静默沿用
+
+
+def declare_situation(
+    conn: sqlite3.Connection, user_id: str, kind: str, value: str,
+    ttl_days: int = SITUATION_TTL_DAYS,
+) -> dict:
+    """声明一项处境（kind 闭集校验在 SQL CHECK + 这里双保险）。"""
+    if kind not in SITUATION_KINDS:
+        raise ValueError(f"kind 只支持 {list(SITUATION_KINDS)}")
+    if not (value or "").strip():
+        raise ValueError("value 不能为空")
+    from datetime import timedelta
+
+    ts = datetime.now(timezone.utc)
+    sid = new_id()
+    conn.execute(
+        "INSERT INTO situation_declarations (id, user_id, kind, value,"
+        " declared_at, expires_at) VALUES (?,?,?,?,?,?)",
+        (sid, user_id, kind, value.strip(), ts.isoformat(),
+         (ts + timedelta(days=ttl_days)).isoformat()),
+    )
+    conn.commit()
+    return get_situation(conn, user_id, sid)
+
+
+def situation_row_to_dict(r: sqlite3.Row) -> dict:
+    return {k: r[k] for k in r.keys()}
+
+
+def get_situation(conn: sqlite3.Connection, user_id: str, sid: str) -> dict | None:
+    r = conn.execute(
+        "SELECT * FROM situation_declarations WHERE id=? AND user_id=?",
+        (sid, user_id),
+    ).fetchone()
+    return situation_row_to_dict(r) if r else None
+
+
+def list_situation(
+    conn: sqlite3.Connection, user_id: str, *, include_expired: bool = False,
+) -> list[dict]:
+    """列出处境。默认只返回**有效**声明（未撤销且未过期）——过期视为未声明。
+
+    include_expired=True 用于导出：用户有权拿走自己的全部数据，包括过期的。
+    """
+    rows = conn.execute(
+        "SELECT * FROM situation_declarations WHERE user_id=? ORDER BY declared_at DESC",
+        (user_id,),
+    ).fetchall()
+    out = [situation_row_to_dict(r) for r in rows]
+    if include_expired:
+        return out
+    ts = now()
+    return [
+        s for s in out
+        if s["revoked_at"] is None and s["expires_at"] > ts
+    ]
+
+
+def revoke_situation(conn: sqlite3.Connection, user_id: str, sid: str) -> bool:
+    r = conn.execute(
+        "SELECT 1 FROM situation_declarations WHERE id=? AND user_id=?",
+        (sid, user_id),
+    ).fetchone()
+    if not r:
+        return False
+    conn.execute(
+        "UPDATE situation_declarations SET revoked_at=? WHERE id=?",
+        (now(), sid),
+    )
+    conn.commit()
+    return True
+
+
+def clear_situation(conn: sqlite3.Connection, user_id: str) -> int:
+    """一键清空：删除该用户全部处境声明（导出/清空是隐私面的硬能力，不是待办）。"""
+    cur = conn.execute("DELETE FROM situation_declarations WHERE user_id=?", (user_id,))
+    conn.commit()
+    return cur.rowcount
+
+
+# ---- 决策留痕（change zhengxin-entity-and-impact-loops 0004） ----
+
+def record_decision(
+    conn: sqlite3.Connection, user_id: str, target_kind: str, target_ref: str,
+    note: str, *, target_label: str | None = None,
+    refs: list[dict] | None = None, revises: str | None = None,
+) -> dict:
+    """记录一项决定（追加式；幂等键 (user_id, target_kind, target_ref, note)）。
+
+    修订 = 新记录 + revises 指向被修订记录，**原记录逐字不动**。
+    内容、评价、置信度、聚合一律不在此表——只有「我说了什么、引了什么」。
+    """
+    if not (note or "").strip():
+        raise ValueError("note 不能为空")
+    existing = conn.execute(
+        "SELECT * FROM decision_notes WHERE user_id=? AND target_kind=?"
+        " AND target_ref=? AND note=?",
+        (user_id, target_kind, target_ref, note.strip()),
+    ).fetchone()
+    if existing:
+        return decision_row_to_dict(existing)
+    did = new_id()
+    conn.execute(
+        "INSERT INTO decision_notes (id, user_id, at, target_kind, target_ref,"
+        " target_label, note, refs, revises) VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            did, user_id, now(), target_kind, target_ref, target_label,
+            note.strip(), json.dumps(refs or [], ensure_ascii=False), revises,
+        ),
+    )
+    conn.commit()
+    return get_decision(conn, user_id, did)
+
+
+def decision_row_to_dict(r: sqlite3.Row) -> dict:
+    d = {k: r[k] for k in r.keys()}
+    d["refs"] = json.loads(d["refs"]) if d.get("refs") else []
+    return d
+
+
+def get_decision(conn: sqlite3.Connection, user_id: str, did: str) -> dict | None:
+    r = conn.execute(
+        "SELECT * FROM decision_notes WHERE id=? AND user_id=?", (did, user_id)
+    ).fetchone()
+    return decision_row_to_dict(r) if r else None
+
+
+def list_decisions(conn: sqlite3.Connection, user_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM decision_notes WHERE user_id=? ORDER BY at DESC", (user_id,)
+    ).fetchall()
+    return [decision_row_to_dict(r) for r in rows]

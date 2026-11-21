@@ -42,12 +42,12 @@ class OverlayError(ValueError):
 def load_ruleset(base: list | None = None, overlay_path: str | None = None) -> list:
     """基线规则库 + 客户侧 overlay → 生效规则集（只收紧）。
 
-    base 缺省用 guard_rules.v1()；overlay_path 缺省读 config.guard_
+    base 缺省用 guard_rules.v2()；overlay_path 缺省读 config.guard_
     overlay_path()（未配置即无叠加，原样返回基线）。任何放宽意图抛
     OverlayError，绝不静默降级。
     """
     if base is None:
-        base = guard_rules.v1()
+        base = guard_rules.v2()
     rules = list(base)
     if overlay_path is None:
         overlay_path = config.guard_overlay_path()
