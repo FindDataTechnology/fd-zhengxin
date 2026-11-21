@@ -111,6 +111,18 @@ MIGRATIONS = [
     );
     CREATE INDEX idx_decision_user ON decision_notes(user_id, at);
     """,
+    # 0005：判断偏好（change zhengxin-ai-judgment-and-workbench）。
+    # 三层 AI 判断的开关，**默认全开**（用户 2026-11-22 明示）。
+    # 不预建行：无行 = 默认全开，读时 COALESCE——新用户不该先有行才能用。
+    """
+    CREATE TABLE judgment_prefs (
+        user_id TEXT PRIMARY KEY,
+        statistical INTEGER NOT NULL DEFAULT 1,
+        means INTEGER NOT NULL DEFAULT 1,
+        personal_j INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+    );
+    """,
 ]
 
 # 理解进度状态机（task 5.2）：已理解只能经复述校验达阈值进入（API 层把关）
@@ -500,3 +512,57 @@ def list_decisions(conn: sqlite3.Connection, user_id: str) -> list[dict]:
         "SELECT * FROM decision_notes WHERE user_id=? ORDER BY at DESC", (user_id,)
     ).fetchall()
     return [decision_row_to_dict(r) for r in rows]
+
+
+# ---- 判断偏好（change zhengxin-ai-judgment-and-workbench 0005） ----
+
+# 三层判断的键名 → 列名（对外用语义名，对内是列名）
+JUDGMENT_LAYERS = ("statistical", "means", "personal")
+_LAYER_COLUMNS = {"statistical": "statistical", "means": "means", "personal": "personal_j"}
+# 默认全开：无行即全开（用户 2026-11-22 明示「默认全开，不要默认全关」）
+DEFAULT_PREFS = {"statistical": True, "means": True, "personal": True}
+
+
+def get_judgment_prefs(conn: sqlite3.Connection, user_id: str) -> dict:
+    """读三层开关。库里无行即默认全开——不预建行。
+
+    `unavailable` 与 `disabled` 的区分是另一层的事（judgment.py），这里只管开关本身。
+    """
+    row = conn.execute(
+        "SELECT statistical, means, personal_j FROM judgment_prefs WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    if row is None:
+        return dict(DEFAULT_PREFS)
+    return {
+        "statistical": bool(row["statistical"]),
+        "means": bool(row["means"]),
+        "personal": bool(row["personal_j"]),
+    }
+
+
+def set_judgment_prefs(
+    conn: sqlite3.Connection, user_id: str, prefs: dict,
+) -> dict:
+    """写三层开关（只认三层键，未知键抛 ValueError——不静默忽略）。
+
+    部分更新：只写传入的层，未传的层沿用当前值（含「无行=默认全开」）。
+    """
+    unknown = set(prefs) - set(JUDGMENT_LAYERS)
+    if unknown:
+        raise ValueError(f"未知判断层 {sorted(unknown)}（合法值 {list(JUDGMENT_LAYERS)}）")
+    merged = get_judgment_prefs(conn, user_id)
+    merged.update({k: bool(v) for k, v in prefs.items()})
+    conn.execute(
+        "INSERT INTO judgment_prefs (user_id, statistical, means, personal_j, updated_at)"
+        " VALUES (?,?,?,?,?)"
+        " ON CONFLICT(user_id) DO UPDATE SET statistical=excluded.statistical,"
+        " means=excluded.means, personal_j=excluded.personal_j,"
+        " updated_at=excluded.updated_at",
+        (
+            user_id, int(merged["statistical"]), int(merged["means"]),
+            int(merged["personal"]), now(),
+        ),
+    )
+    conn.commit()
+    return merged

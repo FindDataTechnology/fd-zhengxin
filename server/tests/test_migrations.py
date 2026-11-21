@@ -117,6 +117,46 @@ def test_decision_table_has_no_scoring_columns() -> None:
         conn.close()
 
 
+def test_judgment_prefs_defaults_all_on() -> None:
+    """0005：三层默认全开；无行即默认（不预建行）。"""
+    conn = personal.connect()
+    try:
+        personal.migrate(conn)
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(judgment_prefs)").fetchall()}
+        assert cols == {"user_id", "statistical", "means", "personal_j", "updated_at"}
+        # 三个开关列默认值都是 1
+        defaults = {r[1]: r[4] for r in conn.execute(
+            "PRAGMA table_info(judgment_prefs)").fetchall()}
+        assert defaults["statistical"] == "1"
+        assert defaults["means"] == "1"
+        assert defaults["personal_j"] == "1"
+        # 无行 = 全开
+        assert personal.get_judgment_prefs(conn, "never-seen") == {
+            "statistical": True, "means": True, "personal": True}
+    finally:
+        conn.close()
+
+
+def test_judgment_prefs_partial_update_and_isolation() -> None:
+    conn = personal.connect()
+    try:
+        personal.migrate(conn)
+        out = personal.set_judgment_prefs(conn, "alice", {"statistical": False})
+        assert out == {"statistical": False, "means": True, "personal": True}
+        # 部分更新不冲掉别的层
+        out = personal.set_judgment_prefs(conn, "alice", {"means": False})
+        assert out == {"statistical": False, "means": False, "personal": True}
+        # 跨用户隔离
+        assert personal.get_judgment_prefs(conn, "bob") == {
+            "statistical": True, "means": True, "personal": True}
+        # 未知层拒绝
+        with pytest.raises(ValueError):
+            personal.set_judgment_prefs(conn, "alice", {"bogus": True})
+    finally:
+        conn.close()
+
+
 def test_card_roundtrip(tmp_path) -> None:
     conn = personal.connect()
     try:

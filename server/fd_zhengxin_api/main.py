@@ -15,6 +15,7 @@ from . import genealogy, impact, locate, perspectives, pulse
 from .auth import require_user
 from .cards_api import router as cards_router
 from .decisions_api import router as decisions_router
+from .judgment_api import router as judgment_router
 from .learning_map import router as learning_map_router
 from .situation_api import router as situation_router
 
@@ -29,6 +30,7 @@ app.include_router(learning_map_router)  # 学习地图（task 5.4，/api/v1/map
 app.include_router(impact.router)  # 影响面环（/api/v1/loops/impact，不裁定利害）
 app.include_router(situation_router)  # 处境档案（/api/v1/situation，经济处境四轴）
 app.include_router(decisions_router)  # 决策留痕（/api/v1/decisions，追加式不评价）
+app.include_router(judgment_router)  # 判断偏好（/api/v1/judgment/prefs，默认全开）
 
 app.add_middleware(
     CORSMiddleware,

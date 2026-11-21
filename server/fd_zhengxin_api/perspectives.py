@@ -29,7 +29,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from . import llm_ledger, looputil, personal, reference_mcp
+from . import judgment, llm_ledger, looputil, personal, reference_mcp
 from .auth import require_user
 from .guard import Action
 from .llm import LLMError
@@ -334,6 +334,26 @@ def perspectives(body: PerspectivesIn, user_id: str = Depends(require_user)) -> 
     }
     gdict, verdict = looputil.publish_gate(payload)
 
+    # AI 判断层（可选增强）：多视角的「判断对象」是各学派视角本身。
+    conn = personal.connect()
+    try:
+        personal.migrate(conn)
+        situation = personal.list_situation(conn, user_id)
+        prefs = personal.get_judgment_prefs(conn, user_id)
+    finally:
+        conn.close()
+    j_elements = [
+        {"item_id": v.get("anchor_ref") or v.get("school") or "view",
+         "value": v.get("school", ""), "quote": (v.get("stance") or "")[:200],
+         "element": "视角"}
+        for v in views if v.get("school")
+    ]
+    jblock = judgment.build_judgment_block(
+        prefs=prefs, elements=j_elements, situation=situation,
+    )
+    for r in judgment.judgment_gate(jblock).reasons:
+        gaps.append({"stage": "judgment", **r})
+
     conn = personal.connect()
     try:
         personal.migrate(conn)
@@ -359,5 +379,6 @@ def perspectives(body: PerspectivesIn, user_id: str = Depends(require_user)) -> 
         "steelman_min_weight": STEELMAN_MIN_WEIGHT,
         "disagreement": disagreement,
         "gaps": gaps,
+        "judgment": jblock,
         "guard": gdict,
     }

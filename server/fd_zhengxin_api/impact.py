@@ -33,7 +33,7 @@ import re
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from . import looputil, personal, reference_mcp
+from . import judgment, looputil, personal, reference_mcp
 from .auth import require_user
 from .guard import Action
 from .infostream_client import InfoStreamClient, InfoStreamUnavailable
@@ -439,11 +439,19 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
     # ---- L4：处境交叠 ----
     conn = personal.connect()
     try:
-        conn_ok = True
         situation = personal.list_situation(conn, user_id)
+        prefs = personal.get_judgment_prefs(conn, user_id)
     finally:
         conn.close()
     overlaps = situation_overlap(all_elements, situation)
+
+    # ---- AI 判断层（可选增强，默认全开）：挂材料层之上，不改材料层字段 ----
+    jblock = judgment.build_judgment_block(
+        prefs=prefs, elements=all_elements, situation=situation,
+    )
+    jverdict = judgment.judgment_gate(jblock)
+    for r in jverdict.reasons:
+        gaps.append({"stage": "judgment", **r})
 
     # ---- publish 门（payload_kind="impact"：R-BAL-001 走作用对象/方向判据） ----
     payload = {
@@ -484,6 +492,7 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
         "claims": claims_out,
         "transmission_candidates": candidates,
         "situation_overlap": overlaps,
+        "judgment": jblock,
         "engine": "deterministic",
         "gaps": gaps,
         "guard": gdict,

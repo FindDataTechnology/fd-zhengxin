@@ -38,7 +38,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from . import llm_ledger, looputil, personal, reference_mcp
+from . import judgment, llm_ledger, looputil, personal, reference_mcp
 from .auth import require_user
 from .guard import Action
 from .llm import LLMError
@@ -518,6 +518,26 @@ def locate(body: LocateIn, user_id: str = Depends(require_user)) -> dict:
     }
     gdict, verdict = looputil.publish_gate(payload)
 
+    # AI 判断层（可选增强，默认全开）：挂在材料层之上，不改材料字段。
+    # 定位闭环没有「作用要素」形态的输入，故 personal 层以归派结论作为判断对象。
+    conn = personal.connect()
+    try:
+        personal.migrate(conn)
+        situation = personal.list_situation(conn, user_id)
+        prefs = personal.get_judgment_prefs(conn, user_id)
+    finally:
+        conn.close()
+    j_elements = [
+        {"item_id": a["evidence"][0], "value": a["school"],
+         "quote": a["stance"][:200], "element": "归派"}
+        for a in validated if a.get("evidence")
+    ]
+    jblock = judgment.build_judgment_block(
+        prefs=prefs, elements=j_elements, situation=situation,
+    )
+    for r in judgment.judgment_gate(jblock).reasons:
+        gaps.append({"stage": "judgment", **r})
+
     conn = personal.connect()
     try:
         personal.migrate(conn)
@@ -545,6 +565,7 @@ def locate(body: LocateIn, user_id: str = Depends(require_user)) -> dict:
         "min_position_strength": MIN_POSITION_STRENGTH,
         "coordinates": coordinates,
         "precedent_chain": chain,
+        "judgment": jblock,
         "gaps": gaps,
         "guard": gdict,
     }

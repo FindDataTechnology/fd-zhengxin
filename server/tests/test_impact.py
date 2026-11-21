@@ -370,3 +370,58 @@ def test_text_core_zero_hits_is_flagged_not_silent() -> None:
 def test_entity_expansion_without_client_degrades() -> None:
     ids, cov = impact._claims_for_entity(_FakeRef(), "习近平", None)
     assert ids == [] and cov["match_mode"] == "none"
+
+
+# ---------------------------------------------------------------- 判断层接入（change ai-judgment）
+
+def _impact(monkeypatch, body_=BODY, prefs=None):
+    tr = FakeTransport({"i1": _item()}, {"cn-gov:x": body_})
+    _patch_infostream(monkeypatch, tr)
+    if prefs:
+        client.put("/api/v1/judgment/prefs", json=prefs, headers=AUTH)
+    return client.post("/api/v1/loops/impact",
+                       json={"target_kind": "claim", "target_ref": "i1"},
+                       headers=AUTH).json()
+
+
+def test_judgment_block_present_default_all_on(monkeypatch) -> None:
+    """默认全开：judgment 块三层都在；统计层因无数据为 unavailable。"""
+    j = _impact(monkeypatch)
+    assert "judgment" in j
+    layers = j["judgment"]["layers"]
+    assert set(layers) == {"statistical", "means", "personal"}
+    assert layers["statistical"]["status"] == "unavailable"
+    assert layers["personal"]["situation"] == "absent"
+
+
+def test_disabling_judgment_leaves_material_untouched(monkeypatch) -> None:
+    """层全关 → 材料层字段逐字节不变（只允许 judgment 不同）。"""
+    on = _impact(monkeypatch)
+    client.put("/api/v1/judgment/prefs",
+               json={"statistical": False, "means": False, "personal": False},
+               headers=AUTH)
+    off = _impact(monkeypatch)
+
+    for k in ("claims", "transmission_candidates", "situation_overlap",
+              "match_mode", "coverage", "target", "engine", "notice"):
+        assert on[k] == off[k], f"材料层字段 {k} 被判断开关影响了"
+
+    off_layers = off["judgment"]["layers"]
+    for name in ("statistical", "means", "personal"):
+        assert off_layers[name]["status"] == "disabled"
+        assert off_layers[name]["items"] == []
+
+
+def test_judgment_situation_declared_changes_personal_layer(monkeypatch) -> None:
+    """声明处境后，对我判断从「通用判断」变成字面交叠判断。"""
+    client.post("/api/v1/situation",
+                json={"kind": "industry", "value": "新能源汽车"}, headers=AUTH)
+    j = _impact(monkeypatch)
+    personal_layer = j["judgment"]["layers"]["personal"]
+    assert personal_layer["situation"] == "declared"
+    assert personal_layer["status"] == "ok"
+    # 每个要素各一条判断：发文机关「财政部」与「新能源汽车」不相交是**正确**的，
+    # 断言的是「不再出现『这是通用判断』」——即处境声明确实参与了判断。
+    concl = [it["conclusion"] for it in personal_layer["items"]]
+    assert all("不是对你个人的判断" not in c for c in concl)
+    assert any("字面" in c for c in concl)
