@@ -369,13 +369,15 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
         if coverage.get("status") != "available":
             gaps.append({"stage": "target", "reason": coverage.get("status"),
                          "detail": coverage.get("detail")})
-        else:
+        elif not item_ids:
+            # 关联面已接线（search_info），但这次没命中——区别于「没接线」
             gaps.append({
-                "stage": "target", "reason": "entity_claim_link_unavailable",
+                "stage": "target", "reason": "no_related_claims",
                 "detail": (
-                    "实体 → 资讯条目的关联面尚未接线：fd-info 的 entities 元组对"
-                    "政治信息面填充率为 0/93（实测），标题/全文匹配需 fd-info 检索面"
-                    "接线后启用。当前实体目标只返回实体本身，无关联 claim。"
+                    "关联面已接线（随时可变的语义检索，不是实体标注："
+                    "fd-info 的 entities 元组对政治面填充率 0/93），"
+                    "本次检索未命中相关条目。若 mode=text-core 且命中 0，"
+                    "不可当真无命中（已知缺口）。"
                 ),
             })
 
