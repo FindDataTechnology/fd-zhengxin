@@ -311,3 +311,62 @@ def test_end_to_end_with_html_body(monkeypatch) -> None:
     els = r.json()["claims"][0]["elements"]
     assert any(e["element"] == "发文机关" for e in els)
     assert any(e["element"] == "文号" for e in els)
+
+
+# ---------------------------------------------------------------- 实体 → claim 展开（缺口②）
+
+class _FakeRef:
+    """参照系桩：entity_dossier 返回可查实体。"""
+
+    def __init__(self, coverage="available", label="习近平", ref="Q15031"):
+        self._cov, self._label, self._ref = coverage, label, ref
+
+    def entity_dossier(self, ref):
+        from fd_zhengxin_api.reference_mcp import RefResult
+        if self._cov != "available":
+            return RefResult(False, self._cov, "实体面不可用")
+        return RefResult(True, data={
+            "identity": {"ref": self._ref, "label": self._label, "kind": "politician"},
+            "coverage": {"status": "available", "detail": None},
+            "relations": {"out": [], "in": []}, "relation_count": 0,
+        })
+
+
+class _SearchStub:
+    def __init__(self, hits: dict, mode="text-core"):
+        self.hits, self.mode = hits, mode
+        self.calls = []
+
+    def search_info(self, query, *, source_types=None, limit=None):
+        self.calls.append((query, source_types))
+        items = self.hits.get(query, [])
+        return {"items": items, "count": len(items), "mode": self.mode}
+
+
+def test_entity_expansion_uses_search_info() -> None:
+    stub = _SearchStub({"习近平": [{"item_id": "abc"}, {"item_id": "def"}]})
+    ids, cov = impact._claims_for_entity(_FakeRef(), "习近平", stub)
+    assert ids == ["abc", "def"]
+    assert cov["match_mode"] == "text-core"
+    assert cov["status"] == "available"
+    assert stub.calls[0][1] == ["ministry"]
+
+
+def test_entity_expansion_unknown_entity_does_not_search() -> None:
+    stub = _SearchStub({})
+    ids, cov = impact._claims_for_entity(_FakeRef(coverage="not_ingested"), "X", stub)
+    assert ids == []
+    assert cov["status"] == "not_ingested"
+    assert stub.calls == []
+
+
+def test_text_core_zero_hits_is_flagged_not_silent() -> None:
+    stub = _SearchStub({}, mode="text-core")
+    ids, cov = impact._claims_for_entity(_FakeRef(), "习近平", stub)
+    assert ids == []
+    assert "不可当真无命中" in cov["detail"]
+
+
+def test_entity_expansion_without_client_degrades() -> None:
+    ids, cov = impact._claims_for_entity(_FakeRef(), "习近平", None)
+    assert ids == [] and cov["match_mode"] == "none"

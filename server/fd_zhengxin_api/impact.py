@@ -111,14 +111,20 @@ class ImpactIn(BaseModel):
 # ---------------------------------------------------------------- target 展开
 
 
-def _claims_for_entity(rc: reference_mcp.ReferenceClient, ref: str) -> tuple[list[dict], dict]:
-    """实体 → 关联资讯条目的有界展开。
+def _claims_for_entity(
+    rc: reference_mcp.ReferenceClient, ref: str,
+    client: InfoStreamClient | None = None,
+) -> tuple[list[str], dict]:
+    """实体 → 关联资讯条目的有界展开。返回 (item_ids, coverage)。
 
-    三级退化，每级记 match_mode（**实测**：fd-info 的 entities 元组对政治面
-    填充率 0/93，所以第 1 级实际恒不命中——这一点必须如实标注，见
-    reports/baseline-2026-11-21.md）。
+    三级匹配，逐级退化，`match_mode` 如实记在 coverage 里：
+    1. `InfoItem.entities` 元组命中 —— **实测对政治面恒不命中**
+       （0/93，字段装的是个股代码，见 reports/baseline-2026-11-21.md）；
+    2. 标题子串 —— 弱信号，但可靠；
+    3. `search_info` 全文检索 —— 最弱，且必须读 mode（`mode="text-core"` 且
+       count=0 不等于真的没有，probe 实测过的缺口）。
 
-    返回 (claims, coverage)。
+    实体本身查不到（coverage != available）时不展开，如实返回原因。
     """
     dossier = rc.entity_dossier(ref)
     if not dossier.ok:
@@ -129,14 +135,37 @@ def _claims_for_entity(rc: reference_mcp.ReferenceClient, ref: str) -> tuple[lis
         return [], {"status": cov or "unavailable",
                     "detail": (data.get("coverage") or {}).get("detail")}
 
-    labels = {data.get("identity", {}).get("label")}
-    labels |= {e.get("other") for e in (data.get("relations") or {}).get("out", [])}
-    labels |= {e.get("other") for e in (data.get("relations") or {}).get("in", [])}
-    labels = {x for x in labels if x}
-    return [], {
-        "status": "available",
-        "detail": "实体读面已就绪；关联资讯条目需经 fd-info 检索（见 claims 展开）",
-        "labels": sorted(labels)[:20],
+    identity = data.get("identity") or {}
+    names = {identity.get("label"), identity.get("ref")}
+    names = {n for n in names if isinstance(n, str) and n and not n.startswith("seed:")}
+    if not names:
+        return [], {"status": "available", "match_mode": "none",
+                    "detail": "实体可查但没有可用于检索的标签"}
+
+    if client is None:
+        return [], {"status": "available", "match_mode": "none",
+                    "detail": "fd-info 客户端不可用（未配置或未注入）"}
+
+    item_ids: list[str] = []
+    modes: list[str] = []
+    try:
+        for name in list(names)[:2]:          # 最多两个名字（中/英各一次）
+            r = client.search_info(name, source_types=["ministry"], limit=MAX_CLAIMS_PER_TARGET)
+            mode = r.get("mode") or "unknown"
+            modes.append(mode)
+            for it in r.get("items") or []:
+                iid = it.get("item_id")
+                if iid and iid not in item_ids:
+                    item_ids.append(iid)
+    except InfoStreamUnavailable as exc:
+        return [], {"status": exc.reason.code, "detail": exc.reason.detail}
+
+    match_mode = "+".join(sorted(set(modes))) or "none"
+    detail = f"经 search_info 检索（mode={match_mode}）命中 {len(item_ids)} 条"
+    if "text-core" in match_mode and not item_ids:
+        detail += "；text-core 模式 count=0 不可当真无命中（已知缺口）"
+    return item_ids[:MAX_CLAIMS_PER_TARGET], {
+        "status": "available", "match_mode": match_mode, "detail": detail,
     }
 
 
@@ -335,9 +364,8 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
         match_mode = "direct"
         coverage = {"status": "available", "detail": "按 item_id 直接指定"}
     else:
-        _, coverage = _claims_for_entity(rc, body.target_ref)
-        item_ids = []
-        match_mode = "entity_expansion"
+        item_ids, coverage = _claims_for_entity(rc, body.target_ref, client)
+        match_mode = coverage.get("match_mode") or "entity_expansion"
         if coverage.get("status") != "available":
             gaps.append({"stage": "target", "reason": coverage.get("status"),
                          "detail": coverage.get("detail")})
