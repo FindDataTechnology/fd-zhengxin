@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  api, ApiError, ApiUnavailableError, getToken, setToken,
+  API_BASE, api, ApiError, ApiUnavailableError, getToken, setToken,
 } from "./client";
 
 function mockFetch(impl: (url: string, init?: RequestInit) => Promise<Response> | Response) {
@@ -96,5 +96,23 @@ describe("端点形状", () => {
     });
     await api.setJudgmentPrefs({ statistical: false });
     expect(method).toBe("PUT");
+  });
+});
+
+describe("生产可达性（这个如果坏了，前端一个请求都发不出去）", () => {
+  it("默认 base 是同源空串，不是 localhost", () => {
+    // 生产由 nginx 反代 /api/ → 集群内 fd-zhengxin-api（web/nginx.conf）。
+    // 默认写成 http://127.0.0.1:8011 会让浏览器去打用户自己的机器。
+    expect(API_BASE).toBe("");
+  });
+
+  it("空 base 时请求打到相对路径 /api/...", async () => {
+    let url: string | undefined;
+    vi.stubGlobal("fetch", vi.fn((u: string) => {
+      url = u;
+      return Promise.resolve(jsonResponse({ user_id: "x" }));
+    }));
+    await api.me();
+    expect(url).toBe("/api/v1/me");
   });
 });

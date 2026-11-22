@@ -1,7 +1,10 @@
 /**
  * 政心 API client（原生 fetch，零第三方依赖；形制照 ../fd-shilun/web/src/api/client.ts）。
  *
- * - base URL 读 `VITE_ZHENGXIN_API_BASE`，默认本地后端 `http://127.0.0.1:8011`
+ * - base URL 读 `VITE_ZHENGXIN_API_BASE`，**默认空串 = 同源**。
+ *   生产由 nginx 反代 `/api/` 到集群内 fd-zhengxin-api（见 web/nginx.conf），
+ *   所以默认必须是相对路径；写死 127.0.0.1:8011 会让生产前端一个请求都发不出去。
+ *   本地联调用 `VITE_ZHENGXIN_API_BASE=http://127.0.0.1:8011 npm run dev` 覆盖。
  * - token 存 `localStorage["zhengxin_token"]`（顶栏输入框设置，开发态）
  * - 网络失败 / 超时 / 5xx → `ApiUnavailableError`（界面据此显示「接线中」降级）
  * - 4xx → `ApiError`（带后端 detail）
@@ -11,7 +14,7 @@
 
 export const API_BASE: string = (() => {
   const raw = import.meta.env?.VITE_ZHENGXIN_API_BASE;
-  return typeof raw === "string" && raw.trim() ? raw.trim().replace(/\/+$/, "") : "http://127.0.0.1:8011";
+  return typeof raw === "string" && raw.trim() ? raw.trim().replace(/\/+$/, "") : "";
 })();
 
 export const TOKEN_KEY = "zhengxin_token";
