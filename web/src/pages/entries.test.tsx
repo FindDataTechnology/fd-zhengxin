@@ -20,6 +20,7 @@ import i18n from "../i18n";
 import { getToken, setToken } from "../api/client";
 import Landing from "./Landing";
 import Workbench from "./Workbench";
+import Mine from "./Mine";
 import Admin from "./Admin";
 
 /** 每个入口一句独有文案（取自 locales，两语各一份）。 */
@@ -35,8 +36,15 @@ const ENTRIES = [
     path: "/workbench",
     label: "Workbench",
     render: () => <Workbench />,
-    zh: "工作台骨架",
-    en: "Workbench skeleton",
+    zh: "说出你想理解什么",
+    en: "Say what you want to understand",
+  },
+  {
+    path: "/workbench/mine",
+    label: "Mine",
+    render: () => <Mine />,
+    zh: "跨议题累积下来的东西",
+    en: "What accumulates across topics",
   },
   {
     path: "/admin",

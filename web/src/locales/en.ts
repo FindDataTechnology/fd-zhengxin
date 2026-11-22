@@ -1,5 +1,5 @@
 export default {
-  nav: { home: "Home", workbench: "Workbench", admin: "Admin", token: "Access token" },
+  nav: { home: "Home", workbench: "Workbench", admin: "Admin", mine: "Mine", token: "Access token" },
   landing: {
     hero: {
       statement1: "Make the history of political thought",
@@ -47,8 +47,52 @@ export default {
   },
   workbench: {
     title: "Workbench",
-    subtitle: "Read · Ask · Discern · Rings — four loops, one history of understanding",
-    placeholder: "Workbench skeleton — understanding cards / learning maps wiring in progress",
+    subtitle: "Say what you want to understand — material above, judgment below (switchable)",
+    mode: { claim: "An item / policy", entity: "A figure / event" },
+    placeholder: {
+      claim: "Paste an item ID",
+      entity: "Enter a figure or event name",
+    },
+    go: "Understand",
+    loading: "Fetching material…",
+    material: "Material",
+    gaps: "Gaps",
+    noClaims: "No related items found.",
+    bodyUnavailable: "Body unavailable — title-level record only",
+  },
+  mine: {
+    title: "Mine",
+    subtitle: "What accumulates across topics — understanding trail, situation, judgment preferences",
+    prefs: "Judgment preferences",
+    prefsNote: "All three AI judgment layers are on by default. Turning a layer off means it stops producing — it does not turn grey.",
+    on: "On",
+    off: "Off",
+    loading: "Loading…",
+    situation: "Situation profile",
+    situationNote: "Economic situation only (region / industry / occupation / asset class). No party, ideology or political stance. Expires after 180 days by default.",
+    situationEmpty: "Nothing declared yet. Declaring lets the personal judgment layer reach you.",
+    kind: {
+      region: "Region",
+      industry: "Industry",
+      occupation: "Occupation",
+      asset_class: "Asset class",
+    },
+    valuePlaceholder: "In your own words",
+    add: "Add",
+  },
+  judgment: {
+    title: "AI judgment (switchable)",
+    evidence: "Evidence",
+    mayBeWrong: "Where I may be wrong",
+    wouldOverturn: "What would overturn it",
+    disabled: "Turned off",
+    unavailable: "Currently unavailable",
+    confidence: { high: "Fairly confident", medium: "Moderate", low: "Low" },
+    layer: {
+      statistical: "Statistical · how such policies behaved historically",
+      means: "Means · which path is more likely to achieve it",
+      personal: "Personal · against your situation",
+    },
   },
   admin: { title: "Admin", placeholder: "Platform admin skeleton — panel role-gate pattern" },
 };

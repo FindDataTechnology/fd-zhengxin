@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getToken, setToken } from "./api/client";
 import Landing from "./pages/Landing";
 import Workbench from "./pages/Workbench";
+import Mine from "./pages/Mine";
 import Admin from "./pages/Admin";
 import { SiteCopilot } from "./components/SiteCopilot";
 import { SiteFooter } from "./components/SiteFooter";
@@ -24,6 +25,7 @@ export default function App() {
         <Link to="/">{t("nav.home")}</Link>
         <Link to="/workbench">{t("nav.workbench")}</Link>
         <Link to="/admin">{t("nav.admin")}</Link>
+        <Link to="/workbench/mine">{t("nav.mine")}</Link>
 
         <div className="ml-auto flex items-center gap-3">
           {/* 开发态兜底：手动填访问令牌（存 localStorage["zhengxin_token"]） */}
@@ -58,6 +60,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/workbench" element={<Workbench />} />
+        <Route path="/workbench/mine" element={<Mine />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
       <SiteFooter brand="政心 Zhengxin" tagline="寻数·识律家族 —— 政情数据底座与读面" links={[{ href: "https://www.finddatatech.cloud/", label: "寻数官网" }]} />

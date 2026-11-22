@@ -1,5 +1,5 @@
 export default {
-  nav: { home: "首页", workbench: "工作台", admin: "管理后台", token: "访问令牌" },
+  nav: { home: "首页", workbench: "工作台", admin: "管理后台", mine: "我的", token: "访问令牌" },
   landing: {
     hero: {
       statement1: "把政治思想史，",
@@ -47,8 +47,52 @@ export default {
   },
   workbench: {
     title: "工作台",
-    subtitle: "读 · 问 · 辨 · 轮 —— 四个闭环，一部理解史",
-    placeholder: "工作台骨架 —— 理解卡 / 学习地图 / 理解年轮接线中",
+    subtitle: "说出你想理解什么 —— 材料在上，判断在下面（可关）",
+    mode: { claim: "一条资讯 / 政策", entity: "一个人物 / 事件" },
+    placeholder: {
+      claim: "粘贴条目 ID，或从下方粘贴一条政策原文的标识",
+      entity: "输入人物或事件名，如「习近平」「中国共产党」",
+    },
+    go: "理解",
+    loading: "正在取材料……",
+    material: "材料",
+    gaps: "缺口",
+    noClaims: "没有关联到条目。",
+    bodyUnavailable: "正文不可得 —— 只做了标题层登记",
+  },
+  mine: {
+    title: "我的",
+    subtitle: "跨议题累积下来的东西 —— 理解轨迹、处境与判断偏好",
+    prefs: "判断偏好",
+    prefsNote: "三层 AI 判断默认全开。关掉某一层后它不再产出，而不是变成灰色。",
+    on: "已开启",
+    off: "已关闭",
+    loading: "读取中……",
+    situation: "处境档案",
+    situationNote: "只记经济处境（地区 / 行业 / 职业 / 资产类别）。不记党派、意识形态或政治态度。默认 180 天失效。",
+    situationEmpty: "还没有声明。声明后，「对我判断」才能算到你身上。",
+    kind: {
+      region: "地区",
+      industry: "行业",
+      occupation: "职业",
+      asset_class: "资产类别",
+    },
+    valuePlaceholder: "你自己的说法，如「新能源汽车零部件」",
+    add: "添加",
+  },
+  judgment: {
+    title: "AI 判断（可关）",
+    evidence: "依据",
+    mayBeWrong: "我可能错在哪",
+    wouldOverturn: "什么会推翻它",
+    disabled: "已关闭",
+    unavailable: "暂不可用",
+    confidence: { high: "把握较高", medium: "中等", low: "较低" },
+    layer: {
+      statistical: "统计判断 · 这类政策历史上效果如何",
+      means: "手段判断 · 哪条路径更可能达成",
+      personal: "对我判断 · 结合你的处境",
+    },
   },
   admin: { title: "管理后台", placeholder: "平台后台骨架 —— panel 角色门禁模式" },
 };
