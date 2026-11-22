@@ -3,7 +3,9 @@
   "server": "fd-zhengxin",
   "entry_path": "/fd-zhengxin",
   "product_line": "lex",
-  "hosting": ["shared-instance"],
+  "hosting": [
+    "shared-instance"
+  ],
   "description": "政心（lex 成员）产品 MCP 面：把「解读一份政策文件 / 追踪一个人物 / 定位一段政治文本 / 读一个议题的立场光谱」做成智能体能独立完成的任务。谦面 pack、萬星 A2A、壹座平台都按这一层消费。产出永远带判断信封（结论/依据链/置信度/我可能错在哪/什么会推翻它），不裁定利害、不给行动建议、群体倡导不开放。",
   "naming_convention": {
     "order": "verb_noun",
@@ -14,7 +16,12 @@
     {
       "group": "analyze",
       "level": "commercial",
-      "tools": ["analyze_document", "analyze_subject", "locate_concept", "read_spectrum"],
+      "tools": [
+        "analyze_document",
+        "analyze_subject",
+        "locate_concept",
+        "read_spectrum"
+      ],
       "data_sources": [
         "fd-zhengxin-reference（MCP）：参照系概念/关系/实体读面",
         "fd-info（MCP）：政治信息流（ministry 条目 + 正文）",
@@ -25,16 +32,30 @@
     {
       "group": "personal",
       "level": "commercial",
-      "tools": ["get_my_situation", "get_my_decisions", "get_my_judgment_prefs"],
-      "data_sources": ["个人层自有库（personal.db，按用户隔离）"],
+      "tools": [
+        "get_my_situation",
+        "get_my_decisions",
+        "get_my_judgment_prefs"
+      ],
+      "data_sources": [
+        "个人层自有库（personal.db，按用户隔离）"
+      ],
       "notes": "个人层读面：处境声明 / 决策留痕 / 判断偏好。**身份只能来自 Authorization header**，工具签名里没有 user_id——否则任何调用方都能读别人的。"
     }
   ],
-  "skills_eligible_for_packs": [],
+  "skills_eligible_for_packs": [
+    "policy-impact-read",
+    "political-entity-trail"
+  ],
   "surface_export": {
     "commercial_tools": [
-      "analyze_document", "analyze_subject", "locate_concept", "read_spectrum",
-      "get_my_situation", "get_my_decisions", "get_my_judgment_prefs"
+      "analyze_document",
+      "analyze_subject",
+      "locate_concept",
+      "read_spectrum",
+      "get_my_situation",
+      "get_my_decisions",
+      "get_my_judgment_prefs"
     ],
     "internal_tools": [],
     "verified_at": "2026-11-22",

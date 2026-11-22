@@ -26,7 +26,10 @@ from .situation_api import router as situation_router
 from .mcp_server import build_server as _build_mcp  # noqa: E402
 
 _mcp = _build_mcp()
-_mcp_app = _mcp.http_app(path="/")
+# path 直接给 "/mcp"：FastMCP 自己的路由就带这个前缀，不必再 mount 到 /mcp。
+# 实测坑：`http_app(path="/")` + `app.mount("/mcp", ...)` 会让 `/mcp`（无尾斜杠）
+# 返回 307、而网关转发的正是无尾斜杠形态 → 外部永远连不上。
+_mcp_app = _mcp.http_app(path="/mcp")
 
 app = FastAPI(title="fd-zhengxin-api", version=__version__, lifespan=_mcp_app.lifespan)
 
@@ -72,4 +75,8 @@ def me(user_id: str = Depends(require_user)) -> dict:
 
 
 # MCP 面在路由全部挂完之后再挂：mount 会把自己的路由表并入 app。
-app.mount("/mcp", _mcp_app)
+# 把 MCP 的路由直接并进主 app（不是 mount 子应用）：
+# 这样 /mcp 与 /mcp/ 都由 FastMCP 自己的路由处理，不经过 Starlette 的
+# 子应用重定向（那个重定向就是 307 的来源）。
+for _r in _mcp_app.routes:
+    app.router.routes.append(_r)

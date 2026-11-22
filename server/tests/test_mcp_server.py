@@ -266,3 +266,16 @@ def test_every_personal_tool_calls_migrate() -> None:
            / "fd_zhengxin_api" / "mcp_server.py").read_text()
     # get_my_* 三个函数体里各出现一次 personal.migrate(conn)
     assert src.count("personal.migrate(conn)") >= 3
+
+
+def test_mcp_path_without_trailing_slash_is_the_gateway_form() -> None:
+    """`/mcp`（无尾斜杠）必须直接可用——网关转发的就是这一形态。
+
+    实测：`http_app(path="/")` + `app.mount("/mcp", ...)` 会让 `/mcp` 返 307
+    重定向，而网关不带尾斜杠 → 外部永远连不上（生产实测：经网关 307/405，
+    直连另一个同形态服务 200）。
+    """
+    from fd_zhengxin_api.main import app
+
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert "/mcp" in paths
