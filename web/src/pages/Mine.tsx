@@ -108,7 +108,7 @@ export default function Mine() {
           <select
             value={draftKind}
             onChange={(e) => setDraftKind(e.target.value)}
-            aria-label={t("mine.kind")}
+            aria-label={t("mine.kindLabel")}
             className="rounded border border-neutral-300 px-2 py-2 text-sm"
           >
             {SITUATION_KINDS.map((k) => (

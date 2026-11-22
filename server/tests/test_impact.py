@@ -425,3 +425,22 @@ def test_judgment_situation_declared_changes_personal_layer(monkeypatch) -> None
     concl = [it["conclusion"] for it in personal_layer["items"]]
     assert all("不是对你个人的判断" not in c for c in concl)
     assert any("字面" in c for c in concl)
+
+
+# ---------------------------------------------------------------- 要素假阳性（浏览器走查撞到）
+
+def test_element_equal_to_title_is_dropped() -> None:
+    """要素值 == 条目标题 → 不是要素（实测：会议报道里「文号」抽到了标题行）。"""
+    body = "文号：某某会议精神\n各省、自治区人民政府：\n"
+    els = impact.extract_elements(body, title="某某会议精神")
+    assert all(e["value"] != "某某会议精神" for e in els)
+
+
+def test_docno_without_number_marker_is_dropped() -> None:
+    """文号必须长得像文号（含「号」或〔〕）；否则是正文里的普通句子。"""
+    body = "文号  国家外汇管理局党组传达学习党的二十届五中全会精神\n"
+    assert impact.extract_elements(body) == []
+    body2 = "文号：自然资发〔2026〕147号\n"
+    els = impact.extract_elements(body2)
+    assert els and els[0]["element"] == "文号"
+    assert "147" in els[0]["value"]

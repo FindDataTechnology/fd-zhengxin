@@ -215,10 +215,16 @@ def _fetch_claim_body(client: InfoStreamClient, item: dict) -> tuple[str | None,
 # ---------------------------------------------------------------- L1 作用面
 
 
-def extract_elements(body: str) -> list[dict]:
+# 文号必须长得像文号：含「号」，或带文号括号（〔〕[]）。实测假阳性：
+# 会议报道里「文号」后面紧跟的是标题行，被当成了文号值——比抽不出更糟。
+_DOCNO_RE = re.compile(r"号|〔|\[|【")
+
+
+def extract_elements(body: str, title: str | None = None) -> list[dict]:
     """从正文确定性抽取作用要素。每个要素带 span，供 verify_evidence 校验。
 
     取不到的要素不出现（正文未载明不是「空值字段」，是它根本不在这份文件里）。
+    `title` 用来滤掉「要素值 == 条目标题」这种假阳性——标题不是任何要素的值。
     """
     out: list[dict] = []
     for label, pat in _ELEMENT_PATTERNS.items():
@@ -231,6 +237,10 @@ def extract_elements(body: str) -> list[dict]:
                 value = iso
             if value in _NAV_NOISE or len(value) < 2:
                 continue   # 导航栏噪音，不是要素
+            if title and value.strip() == title.strip():
+                continue   # 值就是标题本身：抽错了，不是要素
+            if label == "文号" and not _DOCNO_RE.search(value):
+                continue   # 不含「号」/〔〕：不是文号，是正文里的普通句子
             # 「标签一行、值在下一行」形态下，空值会让**下一个标签**被当成值
             # （实测：文号='发布机构'）。值是已知标签名 = 该要素实际无值。
             if value in _LABEL_WORDS:
@@ -416,7 +426,7 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
                 })
                 continue
 
-            raw_elements = extract_elements(body_text)
+            raw_elements = extract_elements(body_text, title=item.get("title"))
             elements, dropped = verify_elements(raw_elements, body_text)
             for d in dropped:
                 gaps.append({"stage": "elements", "item_id": item_id, **d})

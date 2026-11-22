@@ -71,6 +71,7 @@ export default {
     situation: "Situation profile",
     situationNote: "Economic situation only (region / industry / occupation / asset class). No party, ideology or political stance. Expires after 180 days by default.",
     situationEmpty: "Nothing declared yet. Declaring lets the personal judgment layer reach you.",
+    kindLabel: "Situation kind",
     kind: {
       region: "Region",
       industry: "Industry",
@@ -88,6 +89,7 @@ export default {
     disabled: "Turned off",
     unavailable: "Currently unavailable",
     confidence: { high: "Fairly confident", medium: "Moderate", low: "Low" },
+    direction: { "收紧": "Tightening", "放宽": "Loosening", "中性": "Neutral", undetermined: "Direction undetermined" },
     layer: {
       statistical: "Statistical · how such policies behaved historically",
       means: "Means · which path is more likely to achieve it",

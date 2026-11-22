@@ -71,6 +71,7 @@ export default {
     situation: "处境档案",
     situationNote: "只记经济处境（地区 / 行业 / 职业 / 资产类别）。不记党派、意识形态或政治态度。默认 180 天失效。",
     situationEmpty: "还没有声明。声明后，「对我判断」才能算到你身上。",
+    kindLabel: "处境类型",
     kind: {
       region: "地区",
       industry: "行业",
@@ -88,6 +89,7 @@ export default {
     disabled: "已关闭",
     unavailable: "暂不可用",
     confidence: { high: "把握较高", medium: "中等", low: "较低" },
+    direction: { "收紧": "收紧", "放宽": "放宽", "中性": "中性", undetermined: "方向无法判定" },
     layer: {
       statistical: "统计判断 · 这类政策历史上效果如何",
       means: "手段判断 · 哪条路径更可能达成",

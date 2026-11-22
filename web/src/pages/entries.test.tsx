@@ -97,3 +97,26 @@ describe("令牌存取（壳的门面）", () => {
     expect(getToken()).toBe("");
   });
 });
+
+describe("i18n 键形状（浏览器走查撞到过）", () => {
+  /**
+   * `t("mine.kind")` 返回的是**对象**（下面有 region/industry/…），
+   * 当字符串用（比如塞进 aria-label）会渲染成
+   * "key 'mine.kind (zh)' returned an object instead of string."
+   * ——页面不崩，但用户看到一行报错。单测渲染不失败，只有看截图才发现。
+   */
+  it("Mine 渲染后不出现 i18n 的形状错误文案", async () => {
+    await i18n.changeLanguage("zh");
+    const html = renderAt("/workbench/mine", <Mine />);
+    expect(html).not.toContain("returned an object instead of string");
+  });
+
+  it("所有 aria-label 都不是对象型 i18n 键", () => {
+    const src = readFileSync(new URL("./Mine.tsx", import.meta.url), "utf8");
+    // 「直接 t("x.y") 当 aria-label」这种写法一律可疑：写死成具体文案键才安全
+    const bad = [...src.matchAll(/aria-label=\{t\("([^"]+)"\)\}/g)]
+      .map((m) => m[1])
+      .filter((k) => k === "mine.kind");
+    expect(bad).toEqual([]);
+  });
+});

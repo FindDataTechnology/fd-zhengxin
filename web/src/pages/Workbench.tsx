@@ -106,7 +106,9 @@ function ResultView({ data }: { data: ImpactResponse }) {
                     <li key={i} className="text-xs text-neutral-600">
                       <span className="font-medium">{el.element}</span>：{el.value}
                       {el.direction ? (
-                        <span className="ml-1 text-neutral-400">（{el.direction}）</span>
+                        <span className="ml-1 text-neutral-400">
+                          （{t(`judgment.direction.${el.direction}`, el.direction)}）
+                        </span>
                       ) : null}
                     </li>
                   ))}
