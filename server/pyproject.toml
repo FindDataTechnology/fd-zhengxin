@@ -7,7 +7,7 @@ name = "fd-zhengxin-api"
 version = "0.1.0"
 description = "政心（zhengxin）产品门面服务端：官网/工作台/管理后台 API。个人层（理解卡/学习地图/理解年轮）的自有存储在本服务；理解卡不含任何表态字段。"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "FindDataTechnology" }]
 dependencies = [
@@ -23,7 +23,7 @@ dependencies = [
     "pypdf>=4.0",
     # MCP 面（change zhengxin-mcp-surface）：谦面/萬星/壹座 都按 MCP 消费，
     # 没有这一层三处一个都用不上。版本与 fd-sentiment / fd-info 对齐。
-    "fastmcp>=3.4,<4",
+    "fastmcp>=4.2.4,<5",
 ]
 
 [project.optional-dependencies]
