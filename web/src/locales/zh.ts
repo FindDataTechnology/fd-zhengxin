@@ -48,11 +48,13 @@ export default {
   workbench: {
     title: "工作台",
     subtitle: "说出你想理解什么 —— 材料在上，判断在下面（可关）",
-    mode: { claim: "一条资讯 / 政策", entity: "一个人物 / 事件" },
+    mode: { url: "贴一个链接", file: "上传文件", entity: "一个人物 / 事件" },
     placeholder: {
-      claim: "粘贴条目 ID，或从下方粘贴一条政策原文的标识",
+      url: "粘贴政策文件的网页链接，或 PDF 链接",
+      file: "",
       entity: "输入人物或事件名，如「习近平」「中国共产党」",
     },
+    pickFile: "点这里选一个 PDF 或文本文件",
     go: "理解",
     loading: "正在取材料……",
     material: "材料",

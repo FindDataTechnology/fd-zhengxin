@@ -28,9 +28,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 
 from . import judgment, looputil, personal, reference_mcp
@@ -103,8 +105,16 @@ DIRECTION_UNDETERMINED = "undetermined"
 
 
 class ImpactIn(BaseModel):
-    target_kind: str = Field(pattern="^(claim|entity)$")
-    target_ref: str = Field(min_length=1, max_length=500)
+    """target_kind 四值：
+
+    - claim   既有 fd-info 条目（按 item_id）
+    - entity  人物/事件/政党（按标签或 QID）
+    - url     一个网页/PDF 链接（**用户手里就有的东西**，不必找 item_id）
+    - file    上传的 PDF / 纯文本（由 /loops/impact/file 收，见 impact_file）
+    """
+
+    target_kind: str = Field(pattern="^(claim|entity|url|file)$")
+    target_ref: str = Field(min_length=1, max_length=2000)
     is_contemporary: bool = True   # 政策文件天然当代；R-BAL-001 走 impact 判据
 
 
@@ -225,6 +235,28 @@ SCOPE_ELEMENTS = frozenset({
 # 文号必须长得像文号：含「号」，或带文号括号（〔〕[]）。实测假阳性：
 # 会议报道里「文号」后面紧跟的是标题行，被当成了文号值——比抽不出更糟。
 _DOCNO_RE = re.compile(r"号|〔|\[|【")
+
+
+def elements_from_body(
+    body_text: str, *, title: str | None, item_id: str, gaps: list[dict],
+) -> list[dict]:
+    """正文 → 带方向的要素列表（抽取 + 逐字校验 + 方向）。
+
+    item / url / file 三种来源共用这一条下游——「正文进来之后怎么抽」只有一份实现，
+    否则三种来源迟早抽得不一样。
+    """
+    raw = extract_elements(body_text, title=title)
+    kept, dropped = verify_elements(raw, body_text)
+    for d in dropped:
+        gaps.append({"stage": "elements", "item_id": item_id, **d})
+    for el in kept:
+        # 方向只对作用面有意义：文号/日期/文种没有「收紧还是放宽」。
+        el["direction"] = (
+            infer_direction(el["value"])[0]
+            if el["element"] in SCOPE_ELEMENTS else None
+        )
+        el["item_id"] = item_id
+    return kept
 
 
 def extract_elements(body: str, title: str | None = None) -> list[dict]:
@@ -380,6 +412,21 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
         item_ids = [body.target_ref]
         match_mode = "direct"
         coverage = {"status": "available", "detail": "按 item_id 直接指定"}
+    elif body.target_kind == "url":
+        # 用户手里就有的东西：一个公告页 / PDF 链接。不必先找 item_id。
+        from . import ingest
+
+        try:
+            doc = ingest.from_url(body.target_ref)
+        except ingest.IngestError as exc:
+            return _impact_from_document_failed(
+                user_id, body, exc.reason, exc.detail,
+            )
+        return _impact_from_document(
+            user_id, body, doc.text, title=body.target_ref[:120],
+            source_label=body.target_ref, coverage_detail=f"抓取自 {body.target_ref[:120]}",
+            is_contemporary=body.is_contemporary,
+        )
     else:
         item_ids, coverage = _claims_for_entity(rc, body.target_ref, client)
         match_mode = coverage.get("match_mode") or "entity_expansion"
@@ -433,17 +480,9 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
                 })
                 continue
 
-            raw_elements = extract_elements(body_text, title=item.get("title"))
-            elements, dropped = verify_elements(raw_elements, body_text)
-            for d in dropped:
-                gaps.append({"stage": "elements", "item_id": item_id, **d})
-            for el in elements:
-                # 方向只对作用面有意义：文号/日期/文种没有「收紧还是放宽」。
-                el["direction"] = (
-                    infer_direction(el["value"])[0]
-                    if el["element"] in SCOPE_ELEMENTS else None
-                )
-                el["item_id"] = item_id
+            elements = elements_from_body(
+                body_text, title=item.get("title"), item_id=item_id, gaps=gaps,
+            )
             all_elements.extend(elements)
             claims_out.append({
                 "item_id": item_id,
@@ -521,6 +560,152 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
             "本环呈现文本作用面与待检验环节，不裁定对你有利或不利，"
             "也不给行动建议；传导环节须由外部检验方回填结论。"
         ),
+    }
+
+
+@router.post("/impact/file")
+async def impact_file(
+    file: UploadFile = File(...),
+    is_contemporary: bool = Form(True),
+    user_id: str = Depends(require_user),
+) -> dict:
+    """上传文件解读：PDF / HTML / 纯文本 → 作用面 + 判断。
+
+    比贴链接稳：用户手上就有的东西常常是下载下来的 PDF（部委网站的附件），
+    而原页面可能有反爬、会改版、或者根本匿名打不开。
+    """
+    from . import ingest
+
+    # 局部命名空间里构造（类体内的 `x = x` 看不到外层同名变量）
+    doc_body = SimpleNamespace(
+        target_kind="file",
+        target_ref=(file.filename or "upload")[:200],
+        is_contemporary=is_contemporary,
+    )
+
+    data = await file.read()
+    try:
+        doc = ingest.from_bytes(
+            data, content_type=(file.content_type or ""), source="file",
+        )
+    except ingest.IngestError as exc:
+        return _impact_from_document_failed(
+            user_id, doc_body, exc.reason, exc.detail,
+        )
+    return _impact_from_document(
+        user_id, doc_body, doc.text,
+        title=(file.filename or "上传文件")[:120],
+        source_label=(file.filename or "upload")[:200],
+        coverage_detail=f"上传文件（{doc.bytes} 字节，{doc.content_type or '未知类型'}）",
+        is_contemporary=is_contemporary,
+    )
+
+
+# ---------------------------------------------------------------- 文档来源（url / file）
+
+
+def _impact_from_document(
+    user_id: str, body, text: str, *, title: str, source_label: str,
+    coverage_detail: str, is_contemporary: bool,
+) -> dict:
+    """url / file 两种来源的共用通路：正文已在手 → 抽取 → 判断 → 守卫 → 返回。
+
+    与 item 路径共用 `elements_from_body` 和 `judgment.build_judgment_block`，
+    只是正文不来自 fd-info。`item_id` 用来源标签充当引用锚（依据链要能指回去）。
+    """
+    from . import looputil
+
+    gaps: list[dict] = []
+    ref = source_label[:200]
+    elements = elements_from_body(text, title=title, item_id=ref, gaps=gaps)
+    claims_out = [{
+        "item_id": ref,
+        "title": title,
+        "published_at": None,
+        "doc_id": None,
+        "body_available": True,
+        "elements": elements,
+    }]
+
+    conn = personal.connect()
+    try:
+        situation = personal.list_situation(conn, user_id)
+        prefs = personal.get_judgment_prefs(conn, user_id)
+    finally:
+        conn.close()
+
+    jblock = judgment.build_judgment_block(
+        prefs=prefs, elements=elements, situation=situation,
+    )
+    for r in judgment.judgment_gate(jblock).reasons:
+        gaps.append({"stage": "judgment", **r})
+
+    payload = {
+        "payload_kind": "impact",
+        "topic": title[:200],
+        "is_contemporary": is_contemporary,
+        "claims": [{"text": title, "evidence": {"quote": title}}],
+        "elements": [{"target": e["value"], "direction": e.get("direction")}
+                     for e in elements],
+        "views": [],
+        "body": _render_body(claims_out),
+    }
+    gdict, verdict = looputil.publish_gate(payload)
+
+    conn = personal.connect()
+    try:
+        personal.audit(
+            conn, user_id, "loops.impact.document", source_label[:200], "allowed",
+            detail=(f"elements={len(elements)}"
+                    f" guard={verdict.action.value if verdict.action else 'pass'}"),
+        )
+    finally:
+        conn.close()
+    if verdict.action is Action.BLOCK:
+        raise looputil.block_exc(verdict, gaps=gaps)
+
+    return {
+        "target": {"kind": body.target_kind, "ref": source_label[:200]},
+        "match_mode": body.target_kind,
+        "coverage": {"status": "available", "detail": coverage_detail},
+        "claims": claims_out,
+        "transmission_candidates": [transmission_candidate(e) for e in elements],
+        "situation_overlap": situation_overlap(elements, situation),
+        "judgment": jblock,
+        "engine": "deterministic",
+        "gaps": gaps,
+        "guard": gdict,
+        "notice": (
+            "本环呈现文本作用面与待检验环节，不裁定对你有利或不利，"
+            "也不给行动建议；传导环节须由外部检验方回填结论。"
+        ),
+    }
+
+
+def _impact_from_document_failed(user_id: str, body, reason: str, detail: str) -> dict:
+    """取正文失败：如实返回结构化原因，不静默空转、不冒充成功。
+
+    用 200 返回而不是 4xx——「抓不到这份文件」不是调用方的错，是来源不可用；
+    与既有 impact 的 gap 语义一致（客户端读 gaps 而不是读状态码）。
+    """
+    conn = personal.connect()
+    try:
+        personal.audit(conn, user_id, "loops.impact.document",
+                       body.target_ref[:200], "denied", detail=f"{reason}: {detail}")
+    finally:
+        conn.close()
+    return {
+        "target": {"kind": body.target_kind, "ref": body.target_ref[:200]},
+        "match_mode": body.target_kind,
+        "coverage": {"status": "unavailable", "detail": detail},
+        "claims": [],
+        "transmission_candidates": [],
+        "situation_overlap": [],
+        "judgment": {"enabled": False, "layers": {}},
+        "engine": "deterministic",
+        "gaps": [{"stage": "document", "reason": reason, "detail": detail}],
+        "guard": {"action": None, "reasons": [], "ruleset_version": ""},
+        "notice": "没有取到正文，因此没有可呈现的作用面（原因见 gaps）。",
     }
 
 

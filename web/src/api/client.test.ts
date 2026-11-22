@@ -116,3 +116,29 @@ describe("生产可达性（这个如果坏了，前端一个请求都发不出�
     expect(url).toBe("/api/v1/me");
   });
 });
+
+describe("文件上传（用户手上就有的 PDF / 文本）", () => {
+  it("impactFile 用 multipart 打 /impact/file，带 token", async () => {
+    setToken("tok-2");
+    let url: string | undefined;
+    let auth: string | undefined;
+    let isForm = false;
+    vi.stubGlobal("fetch", vi.fn((u: string, init?: RequestInit) => {
+      url = u;
+      auth = (init?.headers as Record<string, string>)?.Authorization;
+      isForm = init?.body instanceof FormData;
+      return Promise.resolve(jsonResponse({ target: {}, claims: [], gaps: [], judgment: {} }));
+    }));
+    const f = new File(["文号：x"], "a.txt", { type: "text/plain" });
+    await api.impactFile(f);
+    expect(url).toBe("/api/v1/loops/impact/file");
+    expect(auth).toBe("Bearer tok-2");
+    expect(isForm).toBe(true);
+  });
+
+  it("上传遇到不可达后端 → ApiUnavailableError", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("failed"))));
+    const f = new File(["x"], "a.txt", { type: "text/plain" });
+    await expect(api.impactFile(f)).rejects.toBeInstanceOf(ApiUnavailableError);
+  });
+});

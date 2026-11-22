@@ -165,12 +165,41 @@ export interface SituationItem {
 export const api = {
   me: () => request<{ user_id: string }>("/api/v1/me"),
 
-  // 影响面环（对象 = 一个资讯条目或一个实体）
-  impact: (targetKind: "claim" | "entity", targetRef: string) =>
+  // 影响面环。四种来源：
+  //   url     一个网页/PDF 链接 —— 用户手里就有的东西
+  //   file    上传的 PDF / 文本（走 /impact/file，multipart）
+  //   entity  人物/事件名
+  //   claim   既有条目 id（保留旧路径）
+  impact: (targetKind: "claim" | "entity" | "url", targetRef: string) =>
     request<ImpactResponse>("/api/v1/loops/impact", {
       method: "POST",
       body: { target_kind: targetKind, target_ref: targetRef },
     }),
+
+  impactFile: async (file: File): Promise<ImpactResponse> => {
+    const token = getToken();
+    const form = new FormData();
+    form.append("file", file);
+    form.append("is_contemporary", "true");
+    let resp: Response;
+    try {
+      resp = await fetch(buildUrl("/api/v1/loops/impact/file"), {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch {
+      throw new ApiUnavailableError();
+    }
+    if (!resp.ok) {
+      if (resp.status >= 500) throw new ApiUnavailableError();
+      let detail: unknown = "";
+      try { detail = (await resp.json())?.detail ?? ""; } catch { /* no body */ }
+      throw new ApiError(resp.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return (await resp.json()) as ImpactResponse;
+  },
 
   // 判断偏好（默认全开；无行即全开）
   getJudgmentPrefs: () =>

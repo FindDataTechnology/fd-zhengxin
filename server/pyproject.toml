@@ -16,6 +16,11 @@ dependencies = [
     "pyjwt[crypto]>=2.8",
     "uvicorn",
     "httpx>=0.27",
+    # 文件上传（/loops/impact/file 的 multipart）：FastAPI 的 Form/File 需要它。
+    # 不放 optional——端点就在主路由上，缺包会让整个 app 起不来（不是降级）。
+    "python-multipart>=0.0.9",
+    # PDF 正文抽取（用户上传的部委公告附件常常是 PDF）。
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]

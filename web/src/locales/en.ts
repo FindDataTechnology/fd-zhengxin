@@ -48,11 +48,13 @@ export default {
   workbench: {
     title: "Workbench",
     subtitle: "Say what you want to understand — material above, judgment below (switchable)",
-    mode: { claim: "An item / policy", entity: "A figure / event" },
+    mode: { url: "Paste a link", file: "Upload a file", entity: "A figure / event" },
     placeholder: {
-      claim: "Paste an item ID",
+      url: "Paste a link to a policy page or PDF",
+      file: "",
       entity: "Enter a figure or event name",
     },
+    pickFile: "Click to pick a PDF or text file",
     go: "Understand",
     loading: "Fetching material…",
     material: "Material",

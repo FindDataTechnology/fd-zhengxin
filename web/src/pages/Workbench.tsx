@@ -11,19 +11,30 @@ import { JudgmentLayerBlock } from "./workbench/JudgmentCard";
  * 但放行」，用户开关是「我压根不想要」，两者不是一回事。
  */
 
-type Mode = "claim" | "entity";
+type Mode = "url" | "file" | "entity";
 
 export default function Workbench() {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<Mode>("claim");
+  const [mode, setMode] = useState<Mode>("url");
   const [ref, setRef] = useState("");
   const [result, setResult] = useState<Loadable<ImpactResponse> | null>(null);
 
   const run = async () => {
-    if (!ref.trim()) return;
+    if (mode === "file" || !ref.trim()) return;   // 文件模式走 pick 回调
     setResult({ status: "loading" });
     try {
       setResult({ status: "ready", data: await api.impact(mode, ref.trim()) });
+    } catch (e) {
+      setResult(mapApiError(e));
+    }
+  };
+
+  const pickFile = async (f: File | null) => {
+    if (!f) return;
+    setRef(f.name);
+    setResult({ status: "loading" });
+    try {
+      setResult({ status: "ready", data: await api.impactFile(f) });
     } catch (e) {
       setResult(mapApiError(e));
     }
@@ -37,7 +48,7 @@ export default function Workbench() {
       {/* 对象输入：一个说出「想理解什么」的地方 */}
       <div className="mt-6 rounded-md border border-neutral-200 bg-white p-4">
         <div className="flex gap-1 text-xs">
-          {(["claim", "entity"] as const).map((m) => (
+          {(["url", "file", "entity"] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -51,23 +62,35 @@ export default function Workbench() {
             </button>
           ))}
         </div>
-        <div className="mt-2 flex gap-2">
-          <input
-            value={ref}
-            onChange={(e) => setRef(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void run()}
-            placeholder={t(`workbench.placeholder.${mode}`)}
-            aria-label={t(`workbench.placeholder.${mode}`)}
-            className="flex-1 rounded border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-900 focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={() => void run()}
-            className="rounded bg-neutral-900 px-4 py-2 text-sm text-white hover:bg-neutral-800"
-          >
-            {t("workbench.go")}
-          </button>
-        </div>
+        {mode === "file" ? (
+          <label className="mt-2 flex cursor-pointer items-center gap-3 rounded border border-dashed border-neutral-300 px-3 py-6 text-sm text-neutral-500 hover:border-neutral-900">
+            <input
+              type="file"
+              accept=".pdf,.txt,.html,.htm"
+              onChange={(e) => void pickFile(e.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+            <span>{ref || t("workbench.pickFile")}</span>
+          </label>
+        ) : (
+          <div className="mt-2 flex gap-2">
+            <input
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void run()}
+              placeholder={t(`workbench.placeholder.${mode}`)}
+              aria-label={t(`workbench.placeholder.${mode}`)}
+              className="flex-1 rounded border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-900 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => void run()}
+              className="rounded bg-neutral-900 px-4 py-2 text-sm text-white hover:bg-neutral-800"
+            >
+              {t("workbench.go")}
+            </button>
+          </div>
+        )}
       </div>
 
       {result?.status === "loading" ? (
