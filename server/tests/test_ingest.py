@@ -170,3 +170,17 @@ def test_impact_url_kind_returns_structured_failure_on_unreachable() -> None:
     j = r.json()
     assert j["gaps"][0]["stage"] == "document"
     assert j["gaps"][0]["reason"] in ("private_host", "fetch_failed")
+
+
+# ---------------------------------------------------------------- 页面标题（实测：用 URL 当标题很难看）
+
+def test_html_title_extracted_and_suffix_stripped() -> None:
+    raw = ('<html><head><title>关于印发某某办法的通知_中华人民共和国财政部</title></head>'
+           '<body><p>发文机关：财政部</p></body></html>')
+    doc = ingest.from_bytes(raw.encode(), content_type="text/html")
+    assert doc.title == "关于印发某某办法的通知"
+
+
+def test_html_without_title_returns_none() -> None:
+    doc = ingest.from_bytes(b"<html><body><p>x</p></body></html>", content_type="text/html")
+    assert doc.title is None

@@ -50,6 +50,7 @@ class Ingested:
     source: str          # "url" | "file" | "item"
     content_type: str
     bytes: int
+    title: str | None = None   # 页面 <title> 或 PDF 元数据标题；没有则 None
 
 
 # ---------------------------------------------------------------- URL 安全
@@ -107,6 +108,17 @@ def _pdf_to_text(data: bytes) -> str:
     return text
 
 
+def _page_title(raw: str) -> str | None:
+    """HTML <title> → 标题。实测：用 URL 当标题会让每条都显示一长串链接。"""
+    m = re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I)
+    if not m:
+        return None
+    t = re.sub(r"\s+", " ", m.group(1)).strip()
+    # 政府站常把站点名缀在标题后（「…_中华人民共和国生态环境部」），去掉后缀
+    t = re.split(r"\s*[_|｜—-]\s*(中华人民共和国|中国政府网|国家)", t)[0].strip()
+    return t or None
+
+
 def html_to_text(raw: str) -> str:
     """HTML → 纯文本。与 impact._strip_html 同一套规则（正则剥标签、去脚本样式）。"""
     if not raw or "<" not in raw:
@@ -143,14 +155,20 @@ def from_bytes(data: bytes, *, content_type: str = "", source: str = "file") -> 
         raise IngestError("empty", "文件为空")
     if len(data) > MAX_BYTES:
         raise IngestError("too_large", f"文件 {len(data)} 字节，超过上限 {MAX_BYTES}")
+    title: str | None = None
     if _looks_like_pdf(data, content_type):
         text = _pdf_to_text(data)
     elif content_type in TEXT_TYPES or data[:1] in (b"<", b" ", b"\n") or not content_type:
         raw = _decode(data, content_type)
-        text = html_to_text(raw) if "<" in raw[:4096] else raw
+        if "<" in raw[:4096]:
+            title = _page_title(raw)
+            text = html_to_text(raw)
+        else:
+            text = raw
     else:
         raise IngestError("unsupported_type", f"不支持的内容类型：{content_type or '未知'}")
-    return _finalize(text, source=source, content_type=content_type, size=len(data))
+    return _finalize(text, source=source, content_type=content_type,
+                     size=len(data), title=title)
 
 
 def from_url(url: str, *, timeout: float = 20.0, allow_private: bool = False) -> Ingested:
@@ -178,10 +196,12 @@ def from_url(url: str, *, timeout: float = 20.0, allow_private: bool = False) ->
     return from_bytes(data, content_type=ctype, source="url")
 
 
-def _finalize(text: str, *, source: str, content_type: str, size: int) -> Ingested:
+def _finalize(text: str, *, source: str, content_type: str, size: int,
+              title: str | None = None) -> Ingested:
     text = (text or "").strip()
     if not text:
         raise IngestError("no_text", "没抽出任何正文")
     if len(text) > MAX_CHARS:
         text = text[:MAX_CHARS]
-    return Ingested(text=text, source=source, content_type=content_type, bytes=size)
+    return Ingested(text=text, source=source, content_type=content_type,
+                    bytes=size, title=title)

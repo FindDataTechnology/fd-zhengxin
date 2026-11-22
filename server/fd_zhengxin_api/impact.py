@@ -423,8 +423,10 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
                 user_id, body, exc.reason, exc.detail,
             )
         return _impact_from_document(
-            user_id, body, doc.text, title=body.target_ref[:120],
-            source_label=body.target_ref, coverage_detail=f"抓取自 {body.target_ref[:120]}",
+            user_id, body, doc.text,
+            title=(doc.title or body.target_ref)[:120],
+            source_label=body.target_ref,
+            coverage_detail=f"抓取自 {body.target_ref[:120]}",
             is_contemporary=body.is_contemporary,
         )
     else:
@@ -594,7 +596,7 @@ async def impact_file(
         )
     return _impact_from_document(
         user_id, doc_body, doc.text,
-        title=(file.filename or "上传文件")[:120],
+        title=(doc.title or file.filename or "上传文件")[:120],
         source_label=(file.filename or "upload")[:200],
         coverage_detail=f"上传文件（{doc.bytes} 字节，{doc.content_type or '未知类型'}）",
         is_contemporary=is_contemporary,
