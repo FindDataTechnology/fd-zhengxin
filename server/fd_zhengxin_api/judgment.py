@@ -177,17 +177,17 @@ def build_means_layer(
             **({"why": "候选路径均不满足判断准入条件"} if not items else {})}
 
 
-# 只有「作用面」类要素才配进判断层。文号 / 成文日期 / 文种 / 发文机关是**文件的
-# 元数据**，不是「这份文件管了谁」——把它们做成「对我判断」会产出四张一模一样、
-# 且与「我」毫无关系的卡片（浏览器走查 2026-11-22 实测）。
-SCOPE_ELEMENTS = frozenset({
-    "主送/适用对象", "适用范围", "适用对象", "作用对象", "点名对象",
-})
+# 作用面要素集合的唯一定义在 impact.py（抽取层，「什么算作用面」属于它）。
+# 这里**函数内延迟导入**：impact 在模块顶层 import judgment，顶层反向导入会成环。
+def _scope_elements_set() -> frozenset[str]:
+    from .impact import SCOPE_ELEMENTS
+    return SCOPE_ELEMENTS
 
 
 def _scope_elements(elements: list[dict]) -> list[dict]:
     """筛出真正的作用面要素；没有就返回空（判断层如实说「没有作用面」）。"""
-    return [e for e in elements if (e.get("element") or "") in SCOPE_ELEMENTS]
+    scope = _scope_elements_set()
+    return [e for e in elements if (e.get("element") or "") in scope]
 
 
 def build_personal_layer(

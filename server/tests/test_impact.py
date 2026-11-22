@@ -444,3 +444,36 @@ def test_docno_without_number_marker_is_dropped() -> None:
     els = impact.extract_elements(body2)
     assert els and els[0]["element"] == "文号"
     assert "147" in els[0]["value"]
+
+
+# ---------------------------------------------------------------- 元数据不该有方向（走查撞到）
+
+def test_metadata_elements_have_no_direction(monkeypatch) -> None:
+    """文号/成文日期/文种/发文机关不标方向——它们没有「收紧还是放宽」。
+
+    实测：页面上每条文号后面都挂「（方向无法判定）」，是纯噪音。
+    方向只对作用面有意义。
+    """
+    tr = FakeTransport({"i1": _item()}, {"cn-gov:x": BODY})
+    _patch_infostream(monkeypatch, tr)
+    j = client.post("/api/v1/loops/impact",
+                    json={"target_kind": "claim", "target_ref": "i1"},
+                    headers=AUTH).json()
+    els = {e["element"]: e for e in j["claims"][0]["elements"]}
+    for name in ("文号", "成文日期", "文种", "发文机关", "发布机构"):
+        if name in els:
+            assert els[name]["direction"] is None, f"{name} 不该有方向"
+
+
+def test_scope_element_still_gets_direction(monkeypatch) -> None:
+    """作用面照常判方向（修复没把好路径关掉）。"""
+    tr = FakeTransport({"i1": _item()}, {"cn-gov:x": BODY})
+    _patch_infostream(monkeypatch, tr)
+    j = client.post("/api/v1/loops/impact",
+                    json={"target_kind": "claim", "target_ref": "i1"},
+                    headers=AUTH).json()
+    els = {e["element"]: e for e in j["claims"][0]["elements"]}
+    # 「各省、自治区、直辖市人民政府…」是作用面 → 有 direction 字段（值可为
+    # undetermined：那句本身没有收紧/放宽措辞）。关键是**它有方向位**，而元数据没有。
+    if "主送/适用对象" in els:
+        assert els["主送/适用对象"]["direction"] is not None

@@ -215,6 +215,13 @@ def _fetch_claim_body(client: InfoStreamClient, item: dict) -> tuple[str | None,
 # ---------------------------------------------------------------- L1 作用面
 
 
+# 「作用面」类要素：只有它们谈得上「管了谁」，也才谈得上收紧/放宽方向。
+# 文号 / 成文日期 / 文种 / 发文机关是**文件的元数据**——给它们标方向是无意义的
+# 噪音（实测：页面上每条文号都挂「方向无法判定」），也不该进判断层。
+SCOPE_ELEMENTS = frozenset({
+    "主送/适用对象", "适用范围", "适用对象", "作用对象", "点名对象",
+})
+
 # 文号必须长得像文号：含「号」，或带文号括号（〔〕[]）。实测假阳性：
 # 会议报道里「文号」后面紧跟的是标题行，被当成了文号值——比抽不出更糟。
 _DOCNO_RE = re.compile(r"号|〔|\[|【")
@@ -431,7 +438,11 @@ def impact(body: ImpactIn, user_id: str = Depends(require_user)) -> dict:
             for d in dropped:
                 gaps.append({"stage": "elements", "item_id": item_id, **d})
             for el in elements:
-                el["direction"] = infer_direction(el["value"])[0]
+                # 方向只对作用面有意义：文号/日期/文种没有「收紧还是放宽」。
+                el["direction"] = (
+                    infer_direction(el["value"])[0]
+                    if el["element"] in SCOPE_ELEMENTS else None
+                )
                 el["item_id"] = item_id
             all_elements.extend(elements)
             claims_out.append({
