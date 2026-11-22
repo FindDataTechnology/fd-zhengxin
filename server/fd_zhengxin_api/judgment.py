@@ -177,10 +177,27 @@ def build_means_layer(
             **({"why": "候选路径均不满足判断准入条件"} if not items else {})}
 
 
+# 只有「作用面」类要素才配进判断层。文号 / 成文日期 / 文种 / 发文机关是**文件的
+# 元数据**，不是「这份文件管了谁」——把它们做成「对我判断」会产出四张一模一样、
+# 且与「我」毫无关系的卡片（浏览器走查 2026-11-22 实测）。
+SCOPE_ELEMENTS = frozenset({
+    "主送/适用对象", "适用范围", "适用对象", "作用对象", "点名对象",
+})
+
+
+def _scope_elements(elements: list[dict]) -> list[dict]:
+    """筛出真正的作用面要素；没有就返回空（判断层如实说「没有作用面」）。"""
+    return [e for e in elements if (e.get("element") or "") in SCOPE_ELEMENTS]
+
+
 def build_personal_layer(
     *, enabled: bool, elements: list[dict], situation: list[dict],
 ) -> dict:
     """对我判断层：结合处境给出对用户的具体影响。
+
+    **只在有「作用面」要素时才产出。** 文件的元数据（文号、成文日期、文种、
+    发文机关）不是作用面——拿它们做个人影响判断，等于把「这份文件的文号是
+    2026 年第 32 号」包装成对用户的判断。宁可这层说「没有可判断的作用面」。
 
     **处境为空是必然的起点**（默认全开 + 处境默认空）：照给通用判断，但信封里
     必须写明 `situation="absent"` 且结论带上「这是通用判断，不是对你个人的判断」。
@@ -192,9 +209,18 @@ def build_personal_layer(
         return {"status": STATUS_UNAVAILABLE, "items": [],
                 "why": "没有可供判断的作用要素（正文不可得或未抽出要素）"}
 
+    scoped = _scope_elements(elements)
+    if not scoped:
+        return {
+            "status": STATUS_UNAVAILABLE, "items": [],
+            "situation": "declared" if situation else "absent",
+            "why": "这份文件没有点明适用的行业/地区/主体（只有文号、日期、文种等"
+                   "文件元数据）——没有作用面可判断。",
+        }
+
     declared = bool(situation)
     items = []
-    for el in elements:
+    for el in scoped:
         if not el.get("item_id") or not el.get("quote"):
             continue
         value = el.get("value") or ""

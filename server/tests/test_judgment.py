@@ -251,3 +251,40 @@ def test_prefs_api_rejects_unknown_field(_api_env) -> None:
 def test_prefs_api_requires_auth() -> None:
     assert _client.get("/api/v1/judgment/prefs").status_code == 401
     assert _client.put("/api/v1/judgment/prefs", json={}).status_code == 401
+
+
+# ---------------------------------------------------------------- 作用面 vs 文件元数据（走查撞到）
+
+def test_metadata_never_becomes_personal_judgment() -> None:
+    """文号 / 成文日期 / 文种 / 发文机关不是作用面，不产生「对我判断」。
+
+    浏览器走查 2026-11-22 实测：一份公告的四个元数据要素生成了四张
+    「「2026年第32号」是这份文件点名的作用面」的卡片——与「我」毫无关系，
+    且四张一个样。这比不产出更糟：它让判断层看起来在工作，实际在复读元数据。
+    """
+    meta = [
+        {"item_id": "i1", "element": "文号", "value": "2026年第32号", "quote": "2026年第32号"},
+        {"item_id": "i1", "element": "成文日期", "value": "2026-11-13", "quote": "2026年11月13日"},
+        {"item_id": "i1", "element": "文种", "value": "公告", "quote": "公告"},
+        {"item_id": "i1", "element": "发布机构", "value": "自然资源部", "quote": "自然资源部"},
+        {"item_id": "i1", "element": "发文机关", "value": "自然资源部", "quote": "自然资源部"},
+    ]
+    layer = J.build_personal_layer(enabled=True, elements=meta, situation=[])
+    assert layer["items"] == []
+    assert layer["status"] == J.STATUS_UNAVAILABLE
+    assert "没有点明适用的行业/地区/主体" in layer["why"]
+
+
+def test_scope_element_still_produces_judgment() -> None:
+    """有真正的适用对象时照常判断（修复没把好路径一起关掉）。"""
+    layer = J.build_personal_layer(enabled=True, elements=[ELEM], situation=[])
+    assert layer["status"] == J.STATUS_OK
+    assert len(layer["items"]) == 1
+
+
+def test_mixed_elements_only_scope_ones_judged() -> None:
+    """元数据与作用面混在一起时，只判作用面。"""
+    meta = {"item_id": "i1", "element": "文号", "value": "2026年第32号", "quote": "2026年第32号"}
+    layer = J.build_personal_layer(enabled=True, elements=[meta, ELEM], situation=[])
+    assert len(layer["items"]) == 1
+    assert "新能源汽车整车制造" in layer["items"][0]["conclusion"]
