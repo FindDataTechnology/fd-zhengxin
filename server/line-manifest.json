@@ -1,0 +1,39 @@
+{
+  "schema": "line-manifest/v1",
+  "line": "zhengxin",
+  "public_base_url": "https://mcp.finddatatech.cloud/fd-zhengxin",
+  "identity": {
+    "issuer": "https://auth.finddatatech.cloud/oidc",
+    "jwks_uri": "https://auth.finddatatech.cloud/oidc/jwks",
+    "jit_policy": "off"
+  },
+  "auth_tracks": [
+    {
+      "kind": "line-native",
+      "name": "mcp-bearer-token",
+      "accepts": "line-native-key",
+      "fallback": true,
+      "enforced": true,
+      "migration_task": "converge-line-identity-and-keys#8.6"
+    },
+    {
+      "kind": "customer-key",
+      "accepts": "ciyuan-sk",
+      "fallback": false,
+      "enforced": false,
+      "migration_task": "converge-line-identity-and-keys#8.3"
+    }
+  ],
+  "scopes": [
+    "line:read",
+    "line:write"
+  ],
+  "billing": {
+    "plane": "ciyuan"
+  },
+  "surfaces": {
+    "mcp": true,
+    "account": false,
+    "admin": false
+  }
+}

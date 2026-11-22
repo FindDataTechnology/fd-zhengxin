@@ -140,3 +140,61 @@ def test_app_lifespan_is_mcp_lifespan() -> None:
     from fd_zhengxin_api.main import app
 
     assert app.router.lifespan_context is not None
+
+
+# ---------------------------------------------------------------- 网关注册面（实撞：Dockerfile 没 COPY）
+
+def test_line_manifest_exists_and_shaped() -> None:
+    """网关靠 line-manifest.json 注册这一条线；缺它三处永远发现不了这个服务。"""
+    import json
+    from pathlib import Path
+
+    p = Path(__file__).resolve().parents[1] / "line-manifest.json"
+    assert p.is_file(), "line-manifest.json 缺失"
+    d = json.loads(p.read_text())
+    assert d["schema"] == "line-manifest/v1"
+    assert d["line"] == "zhengxin"
+    assert d["surfaces"]["mcp"] is True
+
+
+def test_dockerfile_copies_line_manifest() -> None:
+    """清单要进镜像才读得到。
+
+    实测坑：Dockerfile 只 `COPY pyproject.toml README.md` + `COPY fd_zhengxin_api`，
+    根目录的 line-manifest.json 根本不在镜像里——网关读不到，注册面静默缺失。
+    """
+    from pathlib import Path
+
+    df = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    copy_lines = [l for l in df.splitlines() if l.startswith("COPY")]
+    assert any("line-manifest.json" in l for l in copy_lines), \
+        "Dockerfile 没 COPY line-manifest.json：清单进不了镜像"
+
+
+# ---------------------------------------------------------------- 网关注册面（实撞：Dockerfile 没 COPY）
+
+def test_line_manifest_exists_and_shaped() -> None:
+    """网关靠 line-manifest.json 注册这一条线；缺它三处永远发现不了这个服务。"""
+    import json
+    from pathlib import Path
+
+    p = Path(__file__).resolve().parents[1] / "line-manifest.json"
+    assert p.is_file(), "line-manifest.json 缺失"
+    d = json.loads(p.read_text())
+    assert d["schema"] == "line-manifest/v1"
+    assert d["line"] == "zhengxin"
+    assert d["surfaces"]["mcp"] is True
+
+
+def test_dockerfile_copies_line_manifest() -> None:
+    """清单要进镜像才读得到。
+
+    实测坑：Dockerfile 只 `COPY pyproject.toml README.md` + `COPY fd_zhengxin_api`，
+    根目录的 line-manifest.json 根本不在镜像里——网关读不到，注册面静默缺失。
+    """
+    from pathlib import Path
+
+    df = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    copy_lines = [l for l in df.splitlines() if l.startswith("COPY")]
+    assert any("line-manifest.json" in l for l in copy_lines), \
+        "Dockerfile 没 COPY line-manifest.json：清单进不了镜像"
