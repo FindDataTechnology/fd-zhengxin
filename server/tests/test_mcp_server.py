@@ -268,6 +268,21 @@ def test_every_personal_tool_calls_migrate() -> None:
     assert src.count("personal.migrate(conn)") >= 3
 
 
+def test_mcp_both_path_forms_reach_the_app() -> None:
+    """`/mcp` 与 `/mcp/` 都必须直达 MCP 应用（不经 307）。
+
+    实测：Starlette 的 mount 会让无斜杠形态先 307；网关不跟随重定向，
+    于是经网关**永远**吃 307/405。中间件把 `/mcp` 改写成 `/mcp/` 后直通。
+    """
+    import inspect
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1]
+           / "fd_zhengxin_api" / "main.py").read_text()
+    assert 'request.url.path == "/mcp"' in src, "缺无斜杠直通的中间件"
+    assert '"/mcp/"' in src
+
+
 def test_mcp_path_without_trailing_slash_is_the_gateway_form() -> None:
     """`/mcp`（无尾斜杠）必须直接可用——网关转发的就是这一形态。
 

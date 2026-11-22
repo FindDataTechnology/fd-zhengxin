@@ -26,10 +26,10 @@ from .situation_api import router as situation_router
 from .mcp_server import build_server as _build_mcp  # noqa: E402
 
 _mcp = _build_mcp()
-# path 直接给 "/mcp"：FastMCP 自己的路由就带这个前缀，不必再 mount 到 /mcp。
-# 实测坑：`http_app(path="/")` + `app.mount("/mcp", ...)` 会让 `/mcp`（无尾斜杠）
-# 返回 307、而网关转发的正是无尾斜杠形态 → 外部永远连不上。
-_mcp_app = _mcp.http_app(path="/mcp")
+# 做成一个**挂在根上的子应用**（path="/"），再由下面那段把它挂到 /mcp。
+# 关键：不能把 FastMCP 的 Route 直接塞进 app.router.routes——那样拿到的路由
+# 在 ASGI 层丢掉了方法/生命周期处理，POST 会被判成未匹配（实测 405 Allow: GET）。
+_mcp_app = _mcp.http_app(path="/")
 
 app = FastAPI(title="fd-zhengxin-api", version=__version__, lifespan=_mcp_app.lifespan)
 
@@ -75,8 +75,17 @@ def me(user_id: str = Depends(require_user)) -> dict:
 
 
 # MCP 面在路由全部挂完之后再挂：mount 会把自己的路由表并入 app。
-# 把 MCP 的路由直接并进主 app（不是 mount 子应用）：
-# 这样 /mcp 与 /mcp/ 都由 FastMCP 自己的路由处理，不经过 Starlette 的
-# 子应用重定向（那个重定向就是 307 的来源）。
-for _r in _mcp_app.routes:
-    app.router.routes.append(_r)
+# mount 成子应用（FastMCP 的标准 ASGI 集成方式）。
+app.mount("/mcp", _mcp_app)
+
+
+# 无尾斜杠时 Starlette 会先 307 到 `/mcp/`；而网关**不跟随重定向**，
+# 于是外部永远吃 307/405（实测：经网关 405 Allow: GET，直连 `/mcp/` 才 200）。
+# 这里把 `/mcp`（无斜杠）直接交给子应用，把改写后的 scope 传下去——
+# 不是重定向，是一次 forward。
+@app.middleware("http")
+async def _mcp_no_trailing_slash(request, call_next):
+    if request.url.path == "/mcp":
+        request.scope["path"] = "/mcp/"
+        request.scope["raw_path"] = b"/mcp/"
+    return await call_next(request)
