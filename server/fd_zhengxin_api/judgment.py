@@ -207,7 +207,7 @@ def build_personal_layer(
         return {"status": STATUS_DISABLED, "items": []}
     if not elements:
         return {"status": STATUS_UNAVAILABLE, "items": [],
-                "why": "没有可供判断的作用要素（正文不可得或未抽出要素）"}
+                "why": "这份文件里没有抽到可判断的要素（没有作用面，或正文里没有文号/发文机关这类结构化信息）"}
 
     scoped = _scope_elements(elements)
     if not scoped:
