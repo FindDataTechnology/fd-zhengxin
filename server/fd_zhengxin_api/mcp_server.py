@@ -53,7 +53,10 @@ def _bearer() -> str | None:
     """
     try:
         from fastmcp.server.dependencies import get_http_headers
-        headers = get_http_headers() or {}
+        # **必须显式 include**：`get_http_headers()` 默认把 authorization 放进
+        # 排除列表（它把敏感头挡在外面）。不写这一行，任何带 token 的调用都会被
+        # 当成「没带 token」——实测生产：带合法 token 调个人层仍报「缺 Bearer token」。
+        headers = get_http_headers(include={"authorization"}) or {}
     except Exception:  # noqa: BLE001 —— stdio 或版本差异
         return None
     authz = headers.get("authorization") or headers.get("Authorization") or ""
@@ -180,6 +183,7 @@ def build_server() -> FastMCP:
         uid = _bearer_user_or_raise()
         conn = personal.connect()
         try:
+            personal.migrate(conn)      # 表可能还没建（新库 / 冷启动）
             return {"situation": personal.list_situation(conn, uid)}
         finally:
             conn.close()
@@ -192,6 +196,7 @@ def build_server() -> FastMCP:
         uid = _bearer_user_or_raise()
         conn = personal.connect()
         try:
+            personal.migrate(conn)
             return {"decisions": personal.list_decisions(conn, uid)}
         finally:
             conn.close()
@@ -204,6 +209,7 @@ def build_server() -> FastMCP:
         uid = _bearer_user_or_raise()
         conn = personal.connect()
         try:
+            personal.migrate(conn)
             return {"prefs": personal.get_judgment_prefs(conn, uid)}
         finally:
             conn.close()

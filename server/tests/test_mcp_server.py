@@ -198,3 +198,71 @@ def test_dockerfile_copies_line_manifest() -> None:
     copy_lines = [l for l in df.splitlines() if l.startswith("COPY")]
     assert any("line-manifest.json" in l for l in copy_lines), \
         "Dockerfile 没 COPY line-manifest.json：清单进不了镜像"
+
+
+# ---------------------------------------------------------------- 授权头获取（实撞）
+
+def test_bearer_reads_authorization_which_is_excluded_by_default() -> None:
+    """`get_http_headers()` 默认排除 authorization——不显式 include 就永远读不到。
+
+    实测生产：带合法 token 调 get_my_* 仍报「缺 Bearer token」，因为 fastmcp
+    把 authorization 当敏感头挡住了。这条测试用假 header 源验证 include 生效。
+    """
+    import fd_zhengxin_api.mcp_server as ms
+
+    calls = []
+
+    class FakeDeps:
+        @staticmethod
+        def get_http_headers(include=None, **kw):
+            calls.append(include)
+            if include and "authorization" in include:
+                return {"authorization": "Bearer tok-alice"}
+            return {}
+
+    import sys
+    import types
+    fake = types.ModuleType("fastmcp.server.dependencies")
+    fake.get_http_headers = FakeDeps.get_http_headers
+    saved = sys.modules.get("fastmcp.server.dependencies")
+    sys.modules["fastmcp.server.dependencies"] = fake
+    try:
+        assert ms._bearer() == "tok-alice"
+        assert calls and "authorization" in calls[0], "必须显式 include authorization"
+    finally:
+        if saved is not None:
+            sys.modules["fastmcp.server.dependencies"] = saved
+        else:
+            sys.modules.pop("fastmcp.server.dependencies", None)
+
+
+def test_personal_tools_run_migrations_on_fresh_db(tmp_path, monkeypatch) -> None:
+    """个人层工具要自己建表——冷启动时库里还没有 judgment_prefs。
+
+    实测：鉴权修好后报 "no such table: judgment_prefs"——连接了但没迁移。
+    """
+    from fd_zhengxin_api import personal
+
+    conn = personal.connect(str(tmp_path / "fresh.db"))
+    try:
+        # 新库：表确实不存在
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "judgment_prefs" not in tables
+        personal.migrate(conn)
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "judgment_prefs" in tables
+    finally:
+        conn.close()
+
+
+def test_every_personal_tool_calls_migrate() -> None:
+    """三个个人层工具都必须先 migrate 再读——漏一个就是那条工具的冷启动故障。"""
+    import inspect
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1]
+           / "fd_zhengxin_api" / "mcp_server.py").read_text()
+    # get_my_* 三个函数体里各出现一次 personal.migrate(conn)
+    assert src.count("personal.migrate(conn)") >= 3
