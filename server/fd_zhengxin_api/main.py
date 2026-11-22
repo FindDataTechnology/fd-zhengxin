@@ -19,7 +19,16 @@ from .judgment_api import router as judgment_router
 from .learning_map import router as learning_map_router
 from .situation_api import router as situation_router
 
-app = FastAPI(title="fd-zhengxin-api", version=__version__)
+# MCP 面（谦面 / 萬星 / 壹座 三处的消费入口）。
+# 必须在 FastAPI 构造**之前**建好——父 app 只能接受一个 lifespan，
+# 而 FastMCP 的 session manager 要靠它初始化（实测 fastmcp 3.4：只 mount
+# 不传 lifespan，任何 /mcp 请求都抛「task group was not initialized」）。
+from .mcp_server import build_server as _build_mcp  # noqa: E402
+
+_mcp = _build_mcp()
+_mcp_app = _mcp.http_app(path="/")
+
+app = FastAPI(title="fd-zhengxin-api", version=__version__, lifespan=_mcp_app.lifespan)
 
 app.include_router(locate.router)  # 定位闭环（task 4.2，/api/v1/loops/locate）
 app.include_router(perspectives.router)  # 多视角闭环（task 4.3，/api/v1/loops/perspectives）
@@ -40,10 +49,16 @@ app.add_middleware(
 )
 
 
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "fd-zhengxin-api", "version": __version__}
 
+
+# ---- MCP 面（谦面 / 萬星 / 壹座 三处的消费入口） ----
+# 挂成 /mcp 子应用：同一个进程、同一个 PID、同一份 REST。
+# 不把 /mcp 当 k8s 探针——它只接 POST，GET 的 400/405 是协议正常形态
+# （fd-quant 的教训：拿 /mcp 当探针会把健康读成故障）。
 
 @app.get("/api/version")
 def version() -> dict:
@@ -54,3 +69,7 @@ def version() -> dict:
 def me(user_id: str = Depends(require_user)) -> dict:
     """鉴权自检（骨架占位）：携带有效用户授权返回 user_id，否则 401。"""
     return {"user_id": user_id}
+
+
+# MCP 面在路由全部挂完之后再挂：mount 会把自己的路由表并入 app。
+app.mount("/mcp", _mcp_app)

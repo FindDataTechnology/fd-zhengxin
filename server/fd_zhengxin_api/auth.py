@@ -87,3 +87,23 @@ def authenticate(request: Request) -> str:
 
 def require_user(user_id: str = Depends(authenticate)) -> str:
     return user_id
+
+
+# ---------------------------------------------------------------- 非 HTTP 面复用（MCP）
+
+def resolve_user_from_token(token: str) -> str:
+    """token → user_id（不依赖 FastAPI Request）。
+
+    MCP 服务端从 header 取到 token 后走这里——把「token 怎么验」只写一处，
+    避免 MCP 面与 REST 面的鉴权口径漂移。失败抛 ValueError（调用方转结构化错误）。
+    """
+    tok = (token or "").strip()
+    if not tok:
+        raise ValueError("缺 Bearer token")
+    dev = _dev_tokens()
+    if tok in dev:
+        return dev[tok]
+    try:
+        return _verify_jwt(tok)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"token 无效：{type(exc).__name__}") from exc

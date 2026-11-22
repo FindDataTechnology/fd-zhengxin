@@ -21,6 +21,9 @@ dependencies = [
     "python-multipart>=0.0.9",
     # PDF 正文抽取（用户上传的部委公告附件常常是 PDF）。
     "pypdf>=4.0",
+    # MCP 面（change zhengxin-mcp-surface）：谦面/萬星/壹座 都按 MCP 消费，
+    # 没有这一层三处一个都用不上。版本与 fd-sentiment / fd-info 对齐。
+    "fastmcp>=3.4,<4",
 ]
 
 [project.optional-dependencies]
